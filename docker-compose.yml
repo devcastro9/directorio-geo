@@ -9,6 +9,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: America/La_Paz
+      PGTZ: America/La_Paz
     volumes:
       - pgdata:/var/lib/postgresql
     ports:
