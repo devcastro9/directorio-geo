@@ -1,4 +1,4 @@
-FROM python:3.14-slim-trixie
+FROM python:3.13-slim-trixie
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -12,12 +12,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt
 
 COPY . .
 
-RUN useradd --create-home appuser && chown -R appuser:appuser /app
+RUN useradd --create-home appuser \
+    && chown -R appuser:appuser /app
+
 USER appuser
 
 EXPOSE 8000
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+
+CMD ["gunicorn", \
+     "--bind", "0.0.0.0:8000", \
+     "--workers", "4", \
+     "--threads", "4", \
+     "--timeout", "60", \
+     "config.wsgi:application"]

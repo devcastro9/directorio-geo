@@ -13,6 +13,7 @@ services:
       PGTZ: America/La_Paz
     volumes:
       - pgdata:/var/lib/postgresql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     ports:
       - "127.0.0.1:5432:5432" # solo accesible desde tu máquina
     healthcheck:
@@ -28,8 +29,6 @@ services:
     env_file: .env
     ports:
       - "8000:8000"
-    volumes:
-      - .:/app
     depends_on:
       db:
         condition: service_healthy
