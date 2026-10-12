@@ -1,6 +1,9 @@
+name: directorio-dev
+
 services:
   db:
     image: postgis/postgis:18-3.6-alpine
+    container_name: postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -17,6 +20,7 @@ services:
       retries: 10
 
   web:
+    container_name: 'django'
     build: .
     restart: unless-stopped
     env_file: .env
