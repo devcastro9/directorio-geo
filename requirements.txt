@@ -1,0 +1,11 @@
+Django
+psycopg[binary]
+django-environ
+ 
+# Admin, auditoría e interactividad
+django-unfold
+django-simple-history
+django-htmx
+ 
+# Solo si se suben logos o fotos
+Pillow
