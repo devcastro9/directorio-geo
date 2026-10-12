@@ -1,6 +1,8 @@
 Django
 psycopg[binary]
 django-environ
+gunicorn
+whitenoise
  
 # Admin, auditoría e interactividad
 django-unfold
