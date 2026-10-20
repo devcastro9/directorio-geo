@@ -21,9 +21,8 @@ CREATE SCHEMA IF NOT EXISTS search;
 CREATE SCHEMA IF NOT EXISTS analytics;
 CREATE SCHEMA IF NOT EXISTS commercial;
 CREATE SCHEMA IF NOT EXISTS audit;
-CREATE SCHEMA IF NOT EXISTS ops;
 
-CREATE OR REPLACE FUNCTION ops.touch_updated_at() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.touch_updated_at() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
 	NEW.updated_at := clock_timestamp();
@@ -81,7 +80,7 @@ CREATE TABLE IF NOT EXISTS catalog.catalog_item (
 	UNIQUE (catalog_code, code)
 );
 CREATE INDEX IF NOT EXISTS catalog_item_active_idx ON catalog.catalog_item(catalog_code, sort_order, name) WHERE active;
-CREATE TRIGGER catalog_item_touch BEFORE UPDATE ON catalog.catalog_item FOR EACH ROW EXECUTE FUNCTION ops.touch_updated_at();
+CREATE TRIGGER catalog_item_touch BEFORE UPDATE ON catalog.catalog_item FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
 
 CREATE TABLE IF NOT EXISTS catalog.parameter_definitions (
 	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -132,8 +131,8 @@ CREATE TABLE IF NOT EXISTS catalog.parameter_history (
 	changed_by text NOT NULL DEFAULT current_user
 );
 CREATE INDEX IF NOT EXISTS parameter_values_lookup_idx ON catalog.parameter_values(parameter_id, active, valid_from DESC);
-CREATE TRIGGER parameter_definitions_touch BEFORE UPDATE ON catalog.parameter_definitions FOR EACH ROW EXECUTE FUNCTION ops.touch_updated_at();
-CREATE TRIGGER parameter_values_touch BEFORE UPDATE ON catalog.parameter_values FOR EACH ROW EXECUTE FUNCTION ops.touch_updated_at();
+CREATE TRIGGER parameter_definitions_touch BEFORE UPDATE ON catalog.parameter_definitions FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+CREATE TRIGGER parameter_values_touch BEFORE UPDATE ON catalog.parameter_values FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
 
 CREATE OR REPLACE FUNCTION catalog.get_parameter(p_code text, p_scope_key text DEFAULT NULL)
 RETURNS jsonb LANGUAGE sql STABLE AS $$
@@ -205,8 +204,8 @@ CREATE TABLE IF NOT EXISTS core.branch (
 CREATE UNIQUE INDEX IF NOT EXISTS one_primary_branch_idx ON core.branch(business_id) WHERE is_primary AND active;
 CREATE INDEX IF NOT EXISTS branch_location_gist ON core.branch USING gist(location);
 CREATE INDEX IF NOT EXISTS branch_business_idx ON core.branch(business_id, active);
-CREATE TRIGGER business_touch BEFORE UPDATE ON core.business FOR EACH ROW EXECUTE FUNCTION ops.touch_updated_at();
-CREATE TRIGGER branch_touch BEFORE UPDATE ON core.branch FOR EACH ROW EXECUTE FUNCTION ops.touch_updated_at();
+CREATE TRIGGER business_touch BEFORE UPDATE ON core.business FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+CREATE TRIGGER branch_touch BEFORE UPDATE ON core.branch FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
 CREATE TRIGGER business_audit AFTER INSERT OR UPDATE OR DELETE ON core.business FOR EACH ROW EXECUTE FUNCTION audit.capture_change();
 CREATE TRIGGER branch_audit AFTER INSERT OR UPDATE OR DELETE ON core.branch FOR EACH ROW EXECUTE FUNCTION audit.capture_change();
 
@@ -375,7 +374,7 @@ CREATE TABLE IF NOT EXISTS commercial.campaign_keyword (
 	keyword text NOT NULL,
 	PRIMARY KEY (campaign_id, keyword)
 );
-CREATE TRIGGER campaign_touch BEFORE UPDATE ON commercial.campaign FOR EACH ROW EXECUTE FUNCTION ops.touch_updated_at();
+CREATE TRIGGER campaign_touch BEFORE UPDATE ON commercial.campaign FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
 CREATE TRIGGER campaign_audit AFTER INSERT OR UPDATE OR DELETE ON commercial.campaign FOR EACH ROW EXECUTE FUNCTION audit.capture_change();
 
 CREATE TABLE IF NOT EXISTS geo.road_network (
@@ -413,8 +412,7 @@ CREATE INDEX IF NOT EXISTS road_edge_geom_gist ON geo.road_edge USING gist(geom)
 CREATE INDEX IF NOT EXISTS road_edge_network_mode_idx ON geo.road_edge(network_id, mode);
 
 CREATE TABLE IF NOT EXISTS analytics.event (
-	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-	idempotency_key text NOT NULL UNIQUE,
+	id uuid DEFAULT gen_random_uuid(),
 	event_type_id uuid NOT NULL REFERENCES catalog.catalog_item(id),
 	occurred_at timestamptz NOT NULL DEFAULT clock_timestamp(),
 	business_id uuid REFERENCES core.business(id),
@@ -425,7 +423,8 @@ CREATE TABLE IF NOT EXISTS analytics.event (
 	anonymous_key text,
 	query_text text,
 	filters jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(filters) = 'object'),
-	metadata jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(metadata) = 'object')
+	metadata jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(metadata) = 'object'),
+	primary key (id, occurred_at)
 ) PARTITION BY RANGE (occurred_at);
 CREATE TABLE IF NOT EXISTS analytics.event_default PARTITION OF analytics.event DEFAULT;
 CREATE INDEX IF NOT EXISTS event_type_date_idx ON analytics.event(event_type_id, occurred_at);
