@@ -116,6 +116,33 @@ BEGIN
 END;
 $$;
 
+-- Integridad de jerarquias de catalogo: mismo catalogo y sin ciclos.
+CREATE OR REPLACE FUNCTION catalog.validate_parent() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+DECLARE v_catalog text;
+BEGIN
+ IF NEW.parent_id IS NULL THEN RETURN NEW; END IF;
+ IF NEW.parent_id = NEW.id THEN RAISE EXCEPTION 'Un item no puede ser su propio padre'; END IF;
+ SELECT catalog_code INTO v_catalog FROM catalog.catalog_item WHERE id = NEW.parent_id;
+ IF v_catalog IS DISTINCT FROM NEW.catalog_code THEN
+   RAISE EXCEPTION 'El padre debe pertenecer al mismo catalogo';
+ END IF;
+ IF EXISTS (
+   WITH RECURSIVE ancestors(id, parent_id) AS (
+     SELECT id, parent_id FROM catalog.catalog_item WHERE id = NEW.parent_id
+     UNION ALL
+     SELECT p.id, p.parent_id FROM catalog.catalog_item p
+       JOIN ancestors a ON p.id = a.parent_id
+   ) CYCLE id SET is_cycle USING cycle_path
+   SELECT 1 FROM ancestors WHERE id = NEW.id OR is_cycle
+ ) THEN RAISE EXCEPTION 'Ciclo en jerarquia de catalogo'; END IF;
+ RETURN NEW;
+END;
+$$;
+CREATE OR REPLACE TRIGGER catalog_item_parent_check
+ BEFORE INSERT OR UPDATE OF parent_id, catalog_code ON catalog.catalog_item
+ FOR EACH ROW EXECUTE FUNCTION catalog.validate_parent();
+
 -- ----------------------------------------------------------------------------
 -- Parametros
 -- ----------------------------------------------------------------------------
@@ -184,6 +211,55 @@ BEGIN
 	RETURN NEW;
 END;
 $$;
+-- Validar coherencia del valor JSON con la definicion y su alcance.
+CREATE OR REPLACE FUNCTION catalog.validate_parameter_value() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+DECLARE d catalog.parameter_definitions%ROWTYPE; v_kind text; v_num numeric;
+BEGIN
+ SELECT * INTO STRICT d FROM catalog.parameter_definitions WHERE id = NEW.parameter_id;
+ IF NEW.scope_id IS NOT NULL AND NOT EXISTS (
+   SELECT 1 FROM catalog.parameter_scopes ps
+   WHERE ps.id = NEW.scope_id AND ps.parameter_id = NEW.parameter_id
+ ) THEN RAISE EXCEPTION 'El alcance no pertenece al parametro'; END IF;
+ v_kind := jsonb_typeof(NEW.value);
+ IF (d.data_type = 'boolean' AND v_kind <> 'boolean')
+ OR (d.data_type IN ('integer','numeric') AND v_kind <> 'number')
+ OR (d.data_type IN ('text','date','timestamptz') AND v_kind <> 'string') THEN
+   RAISE EXCEPTION 'Tipo JSON incompatible con parametro % (%)', d.code, d.data_type;
+ END IF;
+ IF d.data_type IN ('integer','numeric') THEN
+   v_num := (NEW.value #>> '{}')::numeric;
+   IF d.data_type = 'integer' AND v_num <> trunc(v_num) THEN
+     RAISE EXCEPTION 'Parametro % exige entero', d.code;
+   END IF;
+   IF (d.min_value IS NOT NULL AND v_num < d.min_value)
+      OR (d.max_value IS NOT NULL AND v_num > d.max_value) THEN
+     RAISE EXCEPTION 'Parametro % fuera de rango', d.code;
+   END IF;
+ ELSIF d.data_type = 'date' THEN
+   PERFORM (NEW.value #>> '{}')::date;
+ ELSIF d.data_type = 'timestamptz' THEN
+   PERFORM (NEW.value #>> '{}')::timestamptz;
+ END IF;
+ IF d.allowed_values IS NOT NULL AND
+    (jsonb_typeof(d.allowed_values) <> 'array' OR NOT (d.allowed_values @> jsonb_build_array(NEW.value))) THEN
+   RAISE EXCEPTION 'Valor no permitido para parametro %', d.code;
+ END IF;
+ RETURN NEW;
+END;
+$$;
+CREATE OR REPLACE TRIGGER parameter_values_validate
+ BEFORE INSERT OR UPDATE ON catalog.parameter_values
+ FOR EACH ROW EXECUTE FUNCTION catalog.validate_parameter_value();
+
+-- Evitar intervalos vigentes solapados, incluso para valores globales (scope_id NULL).
+ALTER TABLE catalog.parameter_values ADD CONSTRAINT parameter_values_no_overlap
+ EXCLUDE USING gist (
+   parameter_id WITH =,
+   (coalesce(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) WITH =,
+   tstzrange(valid_from, valid_to, '[)') WITH &&
+ ) WHERE (active);
+
 CREATE OR REPLACE TRIGGER parameter_values_history
 	AFTER INSERT OR UPDATE OF value ON catalog.parameter_values
 	FOR EACH ROW EXECUTE FUNCTION catalog.log_parameter_value();
@@ -198,8 +274,8 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
 		   LEFT JOIN catalog.parameter_scopes ps ON ps.id = pv.scope_id
 		  WHERE pd.code = p_code AND pd.active AND pv.active
 		    AND (pv.scope_id IS NULL OR ps.scope_key = p_scope_key)
-		    AND clock_timestamp() >= pv.valid_from
-		    AND clock_timestamp() < COALESCE(pv.valid_to, 'infinity'::timestamptz)
+		    AND now() >= pv.valid_from
+		    AND now() < COALESCE(pv.valid_to, 'infinity'::timestamptz)
 		  ORDER BY (pv.scope_id IS NOT NULL) DESC, COALESCE(ps.precedence, 0) DESC, pv.valid_from DESC
 		  LIMIT 1),
 		(SELECT default_value FROM catalog.parameter_definitions WHERE code = p_code AND active)
@@ -294,7 +370,10 @@ CREATE INDEX IF NOT EXISTS branch_territory_idx ON core.branch(territory_id);
 CREATE OR REPLACE FUNCTION core.assign_territory() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-	IF NEW.territory_id IS NULL THEN
+	IF NEW.territory_id IS NULL OR
+      (TG_OP = 'UPDATE' AND NEW.location IS DISTINCT FROM OLD.location
+       AND NEW.territory_id IS NOT DISTINCT FROM OLD.territory_id) THEN
+		NEW.territory_id := NULL;
 		SELECT t.id INTO NEW.territory_id
 		  FROM geo.territory t
 		 WHERE t.active AND t.boundary IS NOT NULL AND ST_Covers(t.boundary, NEW.location)
@@ -376,6 +455,18 @@ CREATE TABLE IF NOT EXISTS core.payment_method (
 CREATE OR REPLACE TRIGGER payment_method_catalogs BEFORE INSERT OR UPDATE ON core.payment_method
 	FOR EACH ROW EXECUTE FUNCTION catalog.enforce_catalog('payment_method_id','payment_method');
 
+-- Auditoria de datos operativos: contactos y relaciones (el JSON conserva la clave compuesta).
+CREATE OR REPLACE TRIGGER branch_category_audit AFTER INSERT OR UPDATE OR DELETE ON core.branch_category
+ FOR EACH ROW EXECUTE FUNCTION audit.capture_change('branch_id');
+CREATE OR REPLACE TRIGGER branch_service_audit AFTER INSERT OR UPDATE OR DELETE ON core.branch_service
+ FOR EACH ROW EXECUTE FUNCTION audit.capture_change('branch_id');
+CREATE OR REPLACE TRIGGER branch_feature_audit AFTER INSERT OR UPDATE OR DELETE ON core.branch_feature
+ FOR EACH ROW EXECUTE FUNCTION audit.capture_change('branch_id');
+CREATE OR REPLACE TRIGGER contact_audit AFTER INSERT OR UPDATE OR DELETE ON core.contact
+ FOR EACH ROW EXECUTE FUNCTION audit.capture_change('id');
+CREATE OR REPLACE TRIGGER payment_method_audit AFTER INSERT OR UPDATE OR DELETE ON core.payment_method
+ FOR EACH ROW EXECUTE FUNCTION audit.capture_change('branch_id');
+
 -- ----------------------------------------------------------------------------
 -- Horarios (weekday: 0 = domingo ... 6 = sabado; closes_at <= opens_at cruza medianoche)
 -- ----------------------------------------------------------------------------
@@ -418,6 +509,11 @@ CREATE TABLE IF NOT EXISTS core.exceptional_hour (
 	       (NOT closed AND opens_at IS NOT NULL AND closes_at IS NOT NULL AND opens_at <> closes_at)),
 	UNIQUE (branch_id, service_date)
 );
+
+CREATE OR REPLACE TRIGGER opening_hour_audit AFTER INSERT OR UPDATE OR DELETE ON core.opening_hour
+ FOR EACH ROW EXECUTE FUNCTION audit.capture_change('id');
+CREATE OR REPLACE TRIGGER exceptional_hour_audit AFTER INSERT OR UPDATE OR DELETE ON core.exceptional_hour
+ FOR EACH ROW EXECUTE FUNCTION audit.capture_change('id');
 
 -- "Abierto ahora" (hora local de Bolivia).
 -- Regla: una excepcion de fecha D reemplaza el horario regular del dia D. Un turno nocturno
@@ -471,6 +567,8 @@ CREATE TABLE IF NOT EXISTS core.price (
 	id uuid PRIMARY KEY DEFAULT uuidv7(),
 	branch_id uuid NOT NULL REFERENCES core.branch(id) ON DELETE CASCADE,
 	service_id uuid NOT NULL REFERENCES catalog.catalog_item(id),
+    CONSTRAINT price_branch_service_fk FOREIGN KEY (branch_id, service_id)
+      REFERENCES core.branch_service(branch_id, service_id) ON DELETE CASCADE,
 	amount_min numeric(18,2) NOT NULL CHECK (amount_min >= 0),
 	amount_max numeric(18,2) NOT NULL CHECK (amount_max >= 0),
 	active boolean NOT NULL DEFAULT true,
@@ -521,6 +619,9 @@ CREATE TABLE IF NOT EXISTS commercial.campaign_category (
 	category_id uuid NOT NULL REFERENCES catalog.catalog_item(id),
 	PRIMARY KEY (campaign_id, category_id)
 );
+CREATE OR REPLACE TRIGGER campaign_category_catalogs BEFORE INSERT OR UPDATE ON commercial.campaign_category
+ FOR EACH ROW EXECUTE FUNCTION catalog.enforce_catalog('category_id','category');
+
 CREATE TABLE IF NOT EXISTS commercial.campaign_territory (
 	campaign_id uuid NOT NULL REFERENCES commercial.campaign(id) ON DELETE CASCADE,
 	territory_id uuid NOT NULL REFERENCES geo.territory(id),
@@ -568,7 +669,7 @@ CREATE TABLE IF NOT EXISTS analytics.daily_metric (
 	branch_id uuid,
 	category_id uuid,
 	territory_id uuid,
-	total_count bigint NOT NULL DEFAULT 0,
+	total_count bigint NOT NULL DEFAULT 0 CHECK (total_count >= 0),
 	CONSTRAINT daily_metric_grain_uk
 		UNIQUE NULLS NOT DISTINCT (metric_date, event_type_id, business_id, branch_id, category_id, territory_id)
 );
@@ -581,7 +682,7 @@ CREATE TABLE IF NOT EXISTS analytics.monthly_metric (
 	branch_id uuid,
 	category_id uuid,
 	territory_id uuid,
-	total_count bigint NOT NULL DEFAULT 0,
+	total_count bigint NOT NULL DEFAULT 0 CHECK (total_count >= 0),
 	CONSTRAINT monthly_metric_grain_uk
 		UNIQUE NULLS NOT DISTINCT (metric_month, event_type_id, business_id, branch_id, category_id, territory_id)
 );
@@ -694,7 +795,10 @@ SELECT e.branch_id, e.service_date, e.opens_at, e.closes_at, e.closed, e.reason
   JOIN search.published_branch pb ON pb.branch_id = e.branch_id
  WHERE e.service_date >= (now() AT TIME ZONE 'America/La_Paz')::date - 1;
 
--- Documento de busqueda precalculado. Refrescar con search.refresh_documents().
+-- Documento de busqueda precalculado: solo datos publicados.
+-- Refrescar despues de publicar, despublicar o editar; ejecutar desde backend.
+-- Si se necesita ocultacion inmediata, despublicar filtra find_branches por published_branch
+-- aun antes del refresco, pero la vista materializada debe permanecer privada.
 CREATE MATERIALIZED VIEW IF NOT EXISTS search.branch_document AS
 SELECT d.branch_id,
        d.name_norm,
@@ -702,20 +806,19 @@ SELECT d.branch_id,
        || setweight(to_tsvector('simple', d.tags_norm), 'B')
        || setweight(to_tsvector('simple', d.rest_norm), 'D') AS tsv
   FROM (
-	SELECT br.id AS branch_id,
-	       search.normalize_text(concat_ws(' ', b.trade_name, br.name)) AS name_norm,
-	       search.normalize_text(concat_ws(' ', cats.names, svcs.names)) AS tags_norm,
-	       search.normalize_text(concat_ws(' ', b.legal_name, b.description, br.address_line)) AS rest_norm
-	  FROM core.branch br
-	  JOIN core.business b ON b.id = br.business_id
+	SELECT pb.branch_id,
+           search.normalize_text(concat_ws(' ', pb.trade_name, pb.branch_name)) AS name_norm,
+           search.normalize_text(concat_ws(' ', cats.names, svcs.names)) AS tags_norm,
+           search.normalize_text(concat_ws(' ', pb.description, pb.address_line)) AS rest_norm
+      FROM search.published_branch pb
 	  LEFT JOIN LATERAL (
 		SELECT string_agg(ci.name, ' ') AS names
 		  FROM core.branch_category bc JOIN catalog.catalog_item ci ON ci.id = bc.category_id
-		 WHERE bc.branch_id = br.id) cats ON true
+		 WHERE bc.branch_id = pb.branch_id AND ci.active) cats ON true
 	  LEFT JOIN LATERAL (
 		SELECT string_agg(ci.name, ' ') AS names
 		  FROM core.branch_service bs JOIN catalog.catalog_item ci ON ci.id = bs.service_id
-		 WHERE bs.branch_id = br.id AND bs.active) svcs ON true
+		 WHERE bs.branch_id = pb.branch_id AND bs.active AND ci.active) svcs ON true
   ) d;
 CREATE UNIQUE INDEX IF NOT EXISTS branch_document_pk ON search.branch_document(branch_id);
 CREATE INDEX IF NOT EXISTS branch_document_tsv_gin ON search.branch_document USING gin(tsv);
@@ -741,10 +844,25 @@ DECLARE
 	w_dist numeric := COALESCE(catalog.get_parameter_numeric('search.weight.distance'), 1);
 	w_ver numeric := COALESCE(catalog.get_parameter_numeric('search.weight.verified'), 0);
 BEGIN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 THEN
+      RAISE EXCEPTION 'p_limit debe estar entre 1 y 100';
+    END IF;
+    IF p_offset IS NULL OR p_offset < 0 OR p_offset > 10000 THEN
+      RAISE EXCEPTION 'p_offset debe estar entre 0 y 10000';
+    END IF;
+    IF p_radius_m IS NOT NULL AND (p_radius_m < 1 OR p_radius_m > 100000) THEN
+      RAISE EXCEPTION 'p_radius_m debe estar entre 1 y 100000';
+    END IF;
+    IF length(coalesce(p_query,'')) > 200 THEN
+      RAISE EXCEPTION 'p_query excede 200 caracteres';
+    END IF;
 	IF v_q IS NOT NULL THEN
 		v_norm := search.normalize_text(v_q);
 		v_tsq := websearch_to_tsquery('simple', v_norm);
 	END IF;
+    IF p_location IS NOT NULL AND (ST_GeometryType(p_location) <> 'ST_Point' OR ST_IsEmpty(p_location)) THEN
+      RAISE EXCEPTION 'p_location debe ser un punto no vacio';
+    END IF;
 	IF p_location IS NOT NULL THEN
 		v_geog := (CASE WHEN ST_SRID(p_location) = 0 THEN ST_SetSRID(p_location, 4326)
 		                ELSE ST_Transform(p_location, 4326) END)::geography;
