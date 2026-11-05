@@ -1,0 +1,52 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+using Microsoft.EntityFrameworkCore;
+
+namespace backend.Models;
+
+[Table("branch_photo", Schema = "app")]
+public partial class BranchPhoto
+{
+    [Key]
+    [Column("id")]
+    public Guid Id { get; set; }
+
+    [Column("branch_id")]
+    public Guid BranchId { get; set; }
+
+    [Column("photo_data")]
+    public byte[] PhotoData { get; set; } = null!;
+
+    [Column("mime_type")]
+    public string MimeType { get; set; } = null!;
+
+    [Column("file_size")]
+    public long? FileSize { get; set; }
+
+    [Column("filename")]
+    public string? Filename { get; set; }
+
+    [Column("alt_text")]
+    public string? AltText { get; set; }
+
+    [Column("is_primary")]
+    public bool IsPrimary { get; set; }
+
+    [Column("sort_order")]
+    public int SortOrder { get; set; }
+
+    [Column("created_by_user_id")]
+    public string CreatedByUserId { get; set; } = null!;
+
+    [Column("deleted_at")]
+    public DateTime? DeletedAt { get; set; }
+
+    [Column("created_at")]
+    public DateTime CreatedAt { get; set; }
+
+    [ForeignKey("BranchId")]
+    [InverseProperty("BranchPhoto")]
+    public virtual Branch Branch { get; set; } = null!;
+}
