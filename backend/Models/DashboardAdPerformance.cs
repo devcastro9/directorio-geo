@@ -19,6 +19,7 @@ public partial class DashboardAdPerformance
     public Guid? BranchId { get; set; }
 
     [Column("slot")]
+    [StringLength(30)]
     public string? Slot { get; set; }
 
     [Column("amount_bob")]

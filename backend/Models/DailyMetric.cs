@@ -15,6 +15,7 @@ public partial class DailyMetric
     public DateOnly MetricDate { get; set; }
 
     [Column("event_type")]
+    [StringLength(50)]
     public string EventType { get; set; } = null!;
 
     [Column("business_id")]

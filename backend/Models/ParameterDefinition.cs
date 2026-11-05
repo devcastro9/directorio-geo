@@ -11,12 +11,14 @@ public partial class ParameterDefinition
 {
     [Key]
     [Column("code")]
+    [StringLength(100)]
     public string Code { get; set; } = null!;
 
     [Column("description")]
     public string Description { get; set; } = null!;
 
     [Column("data_type")]
+    [StringLength(20)]
     public string DataType { get; set; } = null!;
 
     [Column("default_value", TypeName = "jsonb")]

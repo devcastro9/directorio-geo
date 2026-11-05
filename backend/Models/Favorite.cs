@@ -12,6 +12,7 @@ public partial class Favorite
 {
     [Key]
     [Column("user_id")]
+    [StringLength(200)]
     public string UserId { get; set; } = null!;
 
     [Key]

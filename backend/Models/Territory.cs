@@ -21,24 +21,30 @@ public partial class Territory
     public Guid? ParentId { get; set; }
 
     [Column("territory_type")]
+    [StringLength(20)]
     public string TerritoryType { get; set; } = null!;
 
     [Column("code_ine")]
+    [StringLength(30)]
     public string? CodeIne { get; set; }
 
     [Column("name")]
+    [StringLength(150)]
     public string Name { get; set; } = null!;
 
     [Column("source")]
+    [StringLength(20)]
     public string Source { get; set; } = null!;
 
     [Column("osm_type")]
+    [StringLength(30)]
     public string? OsmType { get; set; }
 
     [Column("osm_id")]
     public long? OsmId { get; set; }
 
     [Column("source_version")]
+    [StringLength(100)]
     public string? SourceVersion { get; set; }
 
     [Column("boundary", TypeName = "geography(MultiPolygon,4326)")]

@@ -17,12 +17,14 @@ public partial class PublishedBranch
     public Guid? BusinessId { get; set; }
 
     [Column("trade_name")]
+    [StringLength(200)]
     public string? TradeName { get; set; }
 
     [Column("description")]
     public string? Description { get; set; }
 
     [Column("branch_name")]
+    [StringLength(200)]
     public string? BranchName { get; set; }
 
     [Column("address")]

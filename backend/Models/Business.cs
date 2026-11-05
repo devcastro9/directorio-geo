@@ -17,45 +17,56 @@ public partial class Business
     public Guid Id { get; set; }
 
     [Column("slug")]
+    [StringLength(160)]
     public string? Slug { get; set; }
 
     [Column("legal_name")]
+    [StringLength(250)]
     public string? LegalName { get; set; }
 
     [Column("trade_name")]
+    [StringLength(200)]
     public string TradeName { get; set; } = null!;
 
     [Column("tax_id")]
+    [StringLength(50)]
     public string? TaxId { get; set; }
 
     [Column("description")]
     public string? Description { get; set; }
 
     [Column("status")]
+    [StringLength(30)]
     public string Status { get; set; } = null!;
 
     [Column("publication_status")]
+    [StringLength(20)]
     public string PublicationStatus { get; set; } = null!;
 
     [Column("price_level")]
     public short? PriceLevel { get; set; }
 
     [Column("source")]
+    [StringLength(30)]
     public string Source { get; set; } = null!;
 
     [Column("source_key")]
+    [StringLength(200)]
     public string? SourceKey { get; set; }
 
     [Column("created_by_user_id")]
+    [StringLength(200)]
     public string? CreatedByUserId { get; set; }
 
     [Column("updated_by_user_id")]
+    [StringLength(200)]
     public string? UpdatedByUserId { get; set; }
 
     [Column("deleted_at")]
     public DateTime? DeletedAt { get; set; }
 
     [Column("deleted_by_user_id")]
+    [StringLength(200)]
     public string? DeletedByUserId { get; set; }
 
     [Column("created_at")]

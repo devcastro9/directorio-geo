@@ -21,12 +21,15 @@ public partial class Branch
     public Guid BusinessId { get; set; }
 
     [Column("code")]
+    [StringLength(50)]
     public string? Code { get; set; }
 
     [Column("slug")]
+    [StringLength(160)]
     public string? Slug { get; set; }
 
     [Column("name")]
+    [StringLength(200)]
     public string Name { get; set; } = null!;
 
     [Column("address")]
@@ -39,9 +42,11 @@ public partial class Branch
     public Point Location { get; set; } = null!;
 
     [Column("location_source")]
+    [StringLength(20)]
     public string? LocationSource { get; set; }
 
     [Column("status")]
+    [StringLength(30)]
     public string Status { get; set; } = null!;
 
     [Column("is_primary")]
@@ -68,15 +73,18 @@ public partial class Branch
     public string Accessibility { get; set; } = null!;
 
     [Column("source")]
+    [StringLength(30)]
     public string Source { get; set; } = null!;
 
     [Column("source_key")]
+    [StringLength(200)]
     public string? SourceKey { get; set; }
 
     [Column("deleted_at")]
     public DateTime? DeletedAt { get; set; }
 
     [Column("deleted_by_user_id")]
+    [StringLength(200)]
     public string? DeletedByUserId { get; set; }
 
     [Column("created_at")]

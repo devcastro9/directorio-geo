@@ -15,6 +15,7 @@ public partial class Holiday
     public Guid Id { get; set; }
 
     [Column("name")]
+    [StringLength(150)]
     public string Name { get; set; } = null!;
 
     [Column("holiday_date")]

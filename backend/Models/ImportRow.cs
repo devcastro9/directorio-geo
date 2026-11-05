@@ -25,6 +25,7 @@ public partial class ImportRow
     public string Payload { get; set; } = null!;
 
     [Column("normalized_name")]
+    [StringLength(200)]
     public string? NormalizedName { get; set; }
 
     [Column("matched_business_id")]
@@ -34,12 +35,14 @@ public partial class ImportRow
     public Guid? MatchedBranchId { get; set; }
 
     [Column("decision")]
+    [StringLength(20)]
     public string Decision { get; set; } = null!;
 
     [Column("reason")]
     public string? Reason { get; set; }
 
     [Column("reviewed_by_user_id")]
+    [StringLength(200)]
     public string? ReviewedByUserId { get; set; }
 
     [Column("reviewed_at")]

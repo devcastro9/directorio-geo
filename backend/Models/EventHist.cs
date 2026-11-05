@@ -16,21 +16,25 @@ public partial class EventHist
     public Guid Id { get; set; }
 
     [Column("event_type")]
+    [StringLength(50)]
     public string EventType { get; set; } = null!;
 
     [Column("occurred_at")]
     public DateTime OccurredAt { get; set; }
 
     [Column("user_id")]
+    [StringLength(200)]
     public string? UserId { get; set; }
 
     [Column("session_key")]
+    [StringLength(128)]
     public string? SessionKey { get; set; }
 
     [Column("ip_address")]
     public IPAddress IpAddress { get; set; } = null!;
 
     [Column("user_agent")]
+    [StringLength(1000)]
     public string UserAgent { get; set; } = null!;
 
     [Column("business_id")]

@@ -15,18 +15,23 @@ public partial class AuditLog
     public long Id { get; set; }
 
     [Column("entity_schema")]
+    [StringLength(63)]
     public string EntitySchema { get; set; } = null!;
 
     [Column("entity_table")]
+    [StringLength(63)]
     public string EntityTable { get; set; } = null!;
 
     [Column("entity_key")]
+    [StringLength(200)]
     public string EntityKey { get; set; } = null!;
 
     [Column("operation")]
-    public string Operation { get; set; } = null!;
+    [MaxLength(1)]
+    public char Operation { get; set; }
 
     [Column("actor_user_id")]
+    [StringLength(200)]
     public string? ActorUserId { get; set; }
 
     [Column("changed_at")]

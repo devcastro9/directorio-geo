@@ -18,6 +18,7 @@ public partial class ReviewReply
     public Guid ReviewId { get; set; }
 
     [Column("owner_user_id")]
+    [StringLength(200)]
     public string OwnerUserId { get; set; } = null!;
 
     [Column("reply_text")]

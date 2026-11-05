@@ -17,18 +17,21 @@ public partial class Review
     public Guid BranchId { get; set; }
 
     [Column("user_id")]
+    [StringLength(200)]
     public string UserId { get; set; } = null!;
 
     [Column("rating")]
     public short Rating { get; set; }
 
     [Column("title")]
+    [StringLength(200)]
     public string? Title { get; set; }
 
     [Column("body")]
     public string? Body { get; set; }
 
     [Column("moderation_status")]
+    [StringLength(20)]
     public string ModerationStatus { get; set; } = null!;
 
     [Column("moderation_reason")]
@@ -38,6 +41,7 @@ public partial class Review
     public DateTime? ModeratedAt { get; set; }
 
     [Column("moderated_by_user_id")]
+    [StringLength(200)]
     public string? ModeratedByUserId { get; set; }
 
     [Column("deleted_at")]

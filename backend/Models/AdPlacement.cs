@@ -20,6 +20,7 @@ public partial class AdPlacement
     public Guid? BranchId { get; set; }
 
     [Column("slot")]
+    [StringLength(30)]
     public string Slot { get; set; } = null!;
 
     [Column("starts_at")]
@@ -33,18 +34,22 @@ public partial class AdPlacement
     public decimal AmountBob { get; set; }
 
     [Column("payment_status")]
+    [StringLength(20)]
     public string PaymentStatus { get; set; } = null!;
 
     [Column("priority")]
     public int Priority { get; set; }
 
     [Column("status")]
+    [StringLength(20)]
     public string Status { get; set; } = null!;
 
     [Column("invoice_ref")]
+    [StringLength(100)]
     public string? InvoiceRef { get; set; }
 
     [Column("created_by_user_id")]
+    [StringLength(200)]
     public string? CreatedByUserId { get; set; }
 
     [Column("deleted_at")]

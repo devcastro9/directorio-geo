@@ -15,9 +15,11 @@ public partial class PaymentMethod
     public Guid Id { get; set; }
 
     [Column("code")]
+    [StringLength(50)]
     public string Code { get; set; } = null!;
 
     [Column("name")]
+    [StringLength(150)]
     public string Name { get; set; } = null!;
 
     [Column("description")]

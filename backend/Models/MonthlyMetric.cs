@@ -15,6 +15,7 @@ public partial class MonthlyMetric
     public DateOnly MetricMonth { get; set; }
 
     [Column("event_type")]
+    [StringLength(50)]
     public string EventType { get; set; } = null!;
 
     [Column("business_id")]

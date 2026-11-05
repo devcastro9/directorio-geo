@@ -15,12 +15,15 @@ public partial class SearchSynonym
     public Guid Id { get; set; }
 
     [Column("term")]
+    [StringLength(150)]
     public string Term { get; set; } = null!;
 
     [Column("synonym")]
+    [StringLength(150)]
     public string Synonym { get; set; } = null!;
 
     [Column("locale")]
+    [StringLength(10)]
     public string Locale { get; set; } = null!;
 
     [Column("active")]

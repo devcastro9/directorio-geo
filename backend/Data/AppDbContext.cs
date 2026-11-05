@@ -5,7 +5,7 @@ using System;
 
 namespace backend.Data;
 
-public partial class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>(options) //DbContext
+public partial class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>(options) // DbContext(options)
 {
     public virtual DbSet<AdPlacement> AdPlacements { get; set; }
 
@@ -104,8 +104,8 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
 
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
-            entity.Property(e => e.PaymentStatus).HasDefaultValueSql("'pending'::text");
-            entity.Property(e => e.Status).HasDefaultValueSql("'draft'::text");
+            entity.Property(e => e.PaymentStatus).HasDefaultValueSql("'pending'::character varying");
+            entity.Property(e => e.Status).HasDefaultValueSql("'draft'::character varying");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.AdPlacements).HasConstraintName("ad_placement_branch_id_fkey");
@@ -146,9 +146,9 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.Accessibility).HasDefaultValueSql("'{}'::jsonb");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
-            entity.Property(e => e.LocationSource).HasDefaultValueSql("'manual'::text");
-            entity.Property(e => e.Source).HasDefaultValueSql("'manual'::text");
-            entity.Property(e => e.Status).HasDefaultValueSql("'active'::text");
+            entity.Property(e => e.LocationSource).HasDefaultValueSql("'manual'::character varying");
+            entity.Property(e => e.Source).HasDefaultValueSql("'manual'::character varying");
+            entity.Property(e => e.Status).HasDefaultValueSql("'active'::character varying");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Business).WithOne(p => p.Branch)
@@ -272,9 +272,9 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
 
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
-            entity.Property(e => e.PublicationStatus).HasDefaultValueSql("'draft'::text");
-            entity.Property(e => e.Source).HasDefaultValueSql("'manual'::text");
-            entity.Property(e => e.Status).HasDefaultValueSql("'active'::text");
+            entity.Property(e => e.PublicationStatus).HasDefaultValueSql("'draft'::character varying");
+            entity.Property(e => e.Source).HasDefaultValueSql("'manual'::character varying");
+            entity.Property(e => e.Status).HasDefaultValueSql("'active'::character varying");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
@@ -389,7 +389,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
 
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
-            entity.Property(e => e.Status).HasDefaultValueSql("'uploaded'::text");
+            entity.Property(e => e.Status).HasDefaultValueSql("'uploaded'::character varying");
         });
 
         modelBuilder.Entity<ImportRow>(entity =>
@@ -397,7 +397,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.HasKey(e => e.Id).HasName("import_row_pkey");
 
             entity.Property(e => e.Id).UseIdentityAlwaysColumn();
-            entity.Property(e => e.Decision).HasDefaultValueSql("'pending'::text");
+            entity.Property(e => e.Decision).HasDefaultValueSql("'pending'::character varying");
 
             entity.HasOne(d => d.Batch).WithMany(p => p.ImportRows)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -447,7 +447,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
-            entity.Property(e => e.ScopeType).HasDefaultValueSql("'global'::text");
+            entity.Property(e => e.ScopeType).HasDefaultValueSql("'global'::character varying");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.ValidFrom).HasDefaultValueSql("now()");
 
@@ -487,7 +487,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
 
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
-            entity.Property(e => e.ModerationStatus).HasDefaultValueSql("'visible'::text");
+            entity.Property(e => e.ModerationStatus).HasDefaultValueSql("'visible'::character varying");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.Reviews)
@@ -518,7 +518,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
 
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.Active).HasDefaultValue(true);
-            entity.Property(e => e.Locale).HasDefaultValueSql("'es-BO'::text");
+            entity.Property(e => e.Locale).HasDefaultValueSql("'es-BO'::character varying");
         });
 
         modelBuilder.Entity<Service>(entity =>
@@ -559,7 +559,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
-            entity.Property(e => e.Source).HasDefaultValueSql("'INE'::text");
+            entity.Property(e => e.Source).HasDefaultValueSql("'INE'::character varying");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Parent).WithMany(p => p.InverseParent).HasConstraintName("territory_parent_id_fkey");

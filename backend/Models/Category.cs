@@ -16,12 +16,14 @@ public partial class Category
     public Guid Id { get; set; }
 
     [Column("code")]
+    [StringLength(50)]
     public string Code { get; set; } = null!;
 
     [Column("parent_id")]
     public Guid? ParentId { get; set; }
 
     [Column("name")]
+    [StringLength(150)]
     public string Name { get; set; } = null!;
 
     [Column("description")]

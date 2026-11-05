@@ -17,9 +17,11 @@ public partial class BranchContact
     public Guid BranchId { get; set; }
 
     [Column("contact_type")]
+    [StringLength(20)]
     public string ContactType { get; set; } = null!;
 
     [Column("contact_value")]
+    [StringLength(500)]
     public string ContactValue { get; set; } = null!;
 
     [Column("is_primary")]

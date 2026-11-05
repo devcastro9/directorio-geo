@@ -20,15 +20,18 @@ public partial class BranchPhoto
     public byte[] PhotoData { get; set; } = null!;
 
     [Column("mime_type")]
+    [StringLength(30)]
     public string MimeType { get; set; } = null!;
 
     [Column("file_size")]
     public long? FileSize { get; set; }
 
     [Column("filename")]
+    [StringLength(255)]
     public string? Filename { get; set; }
 
     [Column("alt_text")]
+    [StringLength(300)]
     public string? AltText { get; set; }
 
     [Column("is_primary")]
@@ -38,6 +41,7 @@ public partial class BranchPhoto
     public int SortOrder { get; set; }
 
     [Column("created_by_user_id")]
+    [StringLength(200)]
     public string CreatedByUserId { get; set; } = null!;
 
     [Column("deleted_at")]

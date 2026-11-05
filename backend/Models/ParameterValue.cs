@@ -14,9 +14,11 @@ public partial class ParameterValue
     public Guid Id { get; set; }
 
     [Column("code")]
+    [StringLength(100)]
     public string Code { get; set; } = null!;
 
     [Column("scope_type")]
+    [StringLength(20)]
     public string ScopeType { get; set; } = null!;
 
     [Column("scope_id")]

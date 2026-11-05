@@ -13,12 +13,15 @@ public partial class AdminBusinessSummary
     public Guid? Id { get; set; }
 
     [Column("trade_name")]
+    [StringLength(200)]
     public string? TradeName { get; set; }
 
     [Column("publication_status")]
+    [StringLength(20)]
     public string? PublicationStatus { get; set; }
 
     [Column("status")]
+    [StringLength(30)]
     public string? Status { get; set; }
 
     [Column("deleted_at")]
