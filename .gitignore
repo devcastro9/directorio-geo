@@ -1,225 +1,292 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[codz]
-*$py.class
 
-# C extensions
-*.so
+# ============================================================
+# BoliviaNegocios - Monorepo
+# Frontend: Nuxt / Vue 3 / TypeScript
+# Backend: ASP.NET Core 10 Web API / JWT / EF Core
+# Database: PostgreSQL 18 / PostGIS
+# ============================================================
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
-# PyInstaller
-#   Usually these files are written by a python script from a template
-#   before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py.cover
-*.lcov
-.hypothesis/
-.pytest_cache/
-cover/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-staticfiles/
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
-
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-# Pipfile.lock
-
-# uv
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-# uv.lock
-
-# poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-# poetry.lock
-# poetry.toml
-
-# pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#   pdm recommends including project-wide configuration in pdm.toml, but excluding .pdm-python.
-#   https://pdm-project.org/en/latest/usage/project/#working-with-version-control
-# pdm.lock
-# pdm.toml
-.pdm-python
-.pdm-build/
-
-# pixi
-#   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
-# pixi.lock
-#   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
-#   in the .venv directory. It is recommended not to include this directory in version control.
-.pixi/*
-!.pixi/config.toml
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule*
-celerybeat.pid
-
-# Redis
-*.rdb
-*.aof
-*.pid
-
-# RabbitMQ
-mnesia/
-rabbitmq/
-rabbitmq-data/
-
-# ActiveMQ
-activemq-data/
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
+# ------------------------------------------------------------
+# Secrets and environment variables
+# ------------------------------------------------------------
 .env
-.env.dev
-.envrc
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+.env.*
+!.env.example
+!.env.*.example
 
-# Spyder project settings
-.spyderproject
-.spyproject
+# Local credentials
+secrets.json
+*.pfx
+*.p12
+*.key
+*.pem
 
-# Rope project settings
-.ropeproject
+# ASP.NET Core local configuration
+appsettings.Local.json
+appsettings.*.local.json
+appsettings.Development.local.json
 
-# mkdocs/Zensical documentation
-/site
+# JWT private keys and credentials
+jwt-private*
+jwt-secret*
+private-key*
+credentials.json
 
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
 
-# Pyre type checker
-.pyre/
+# ============================================================
+# FRONTEND - Nuxt / Vue 3 / TypeScript
+# ============================================================
 
-# pytype static type analyzer
-.pytype/
+# Dependencies
+node_modules/
 
-# Cython debug symbols
-cython_debug/
+# Nuxt generated files
+.nuxt/
+.output/
+.data/
+.cache/
+.nitro/
 
-# PyCharm
-#   JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#   and can be added to the global gitignore or merged into this file.  For a more nuclear
-#   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
+# Build outputs
+dist/
+.output-public/
 
-# Abstra
-#   Abstra is an AI-powered process automation framework.
-#   Ignore directories containing user credentials, local state, and settings.
-#   Learn more at https://abstra.io/docs
-.abstra/
+# Package manager cache
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
 
-# Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore that
-#   can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, you
-#   could uncomment the following to ignore the entire vscode folder
-# .vscode/
-# Temporary file for partial code execution
-tempCodeRunnerFile.py
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Ruff stuff:
-.ruff_cache/
+# TypeScript
+*.tsbuildinfo
 
-# PyPI configuration file
-.pypirc
+# Testing
+coverage/
+.nyc_output/
+.playwright/
+playwright-report/
+test-results/
+__screenshots__/
+*.lcov
 
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
+# Vitest
+.vitest/
 
-# Streamlit
-.streamlit/secrets.toml
+# ESLint cache
+.eslintcache
+.stylelintcache
+.turbo/
 
-# Ignore config
-.vscode/
+# Local runtime files
+*.pid
+*.seed
+
+
+# ============================================================
+# BACKEND - ASP.NET Core 10 Web API
+# ============================================================
+
+# Build directories
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+publish/
+publish_output/
+
+# Generated assemblies
+*.dll
+*.exe
+*.pdb
+*.mdb
+
+# .NET generated files
+*.cache
+*.deps.json
+*.runtimeconfig.dev.json
+
+# ASP.NET Core logs
+logs/
+*.log
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# Visual Studio diagnostics
+*.diagsession
+*.diaglog
+*.psess
+*.vsp
+*.vspx
+*.coverage
+*.coveragexml
+
+# JetBrains Rider / ReSharper
+.idea/
+_ReSharper*/
+*.DotSettings.user
+*.sln.iml
+*.iws
+*.ipr
+
+# NuGet generated packages
+*.nupkg
+*.snupkg
+packages/
+
+# Local NuGet package cache
+.nuget/packages/
+
+# Local NuGet configuration
+NuGet.Local.Config
+
+# .NET testing
+TestResults/
+coverage.cobertura.xml
+coverage.opencover.xml
+
+
+# ============================================================
+# ENTITY FRAMEWORK CORE
+# ============================================================
+
+# IMPORTANT:
+# Do NOT ignore EF Core migrations.
+# Migrations must be versioned in Git.
+
+# Keep:
+# Migrations/
+# *Migration.cs
+# *ModelSnapshot.cs
+
+
+# ============================================================
+# POSTGRESQL / POSTGIS
+# ============================================================
+
+# Database backups
+*.dump
+*.backup
+*.bak
+*.sql.gz
+*.sql.zip
+
+# PostgreSQL runtime files
+postmaster.pid
+postmaster.opts
+pgdata/
+postgres-data/
+postgres_data/
+
+# Local database storage
+db-data/
+database-data/
+
+# IMPORTANT:
+# Keep database schema and migration SQL files
+# tracked in Git.
+
+# Keep:
+# database/schema/
+# database/migrations/
+# database/seeds/
+# *.sql
+
+
+# ============================================================
+# DOCKER
+# ============================================================
+
+# Local Docker overrides
+docker-compose.override.yml
+compose.override.yml
+
+# Local Docker environment
+docker/.env
+docker/*.env
+
+# Docker volumes
+volumes/
+
+
+# ============================================================
+# IDE / EDITORS
+# ============================================================
+
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# Temporary editor files
+*.swp
+*.swo
+*~
+*.orig
+*.rej
+
+# Temporary files
+*.tmp
+*.temp
+*.old
+*.lock.tmp
+
+
+# ============================================================
+# OPERATING SYSTEM
+# ============================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+
+# ============================================================
+# DOCUMENTATION / GENERATED OUTPUT
+# ============================================================
+
+# Generated documentation
+docs/_build/
+site/
+
+# Temporary exports
+exports/
+tmp/
+temp/
+
+
+# ============================================================
+# END
+# ============================================================
