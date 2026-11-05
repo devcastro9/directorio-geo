@@ -105,10 +105,7 @@ docker-compose.yml       Servicios db, pgadmin y web reservado
 .dockerignore
 ```
 
-## Próximos pasos
-
-- [ ] Confirmar la imagen de PostgreSQL con soporte para pgRouting.
-- [ ] Añadir el backend Django/GeoDjango.
-- [ ] Añadir la interfaz web y las búsquedas por texto, ciudad y categoría.
-- [ ] Cargar catálogos, territorios y datos de OpenStreetMap.
-- [ ] Implementar negocios destacados, vigencias y registro de visitas.
+## Ingeniera inversa a la base de datos (Database First)
+```
+Scaffold-DbContext "Host=localhost;Port=5432;Database=directorio;Username=directorio;Password=passworddb;Pooling=true;Minimum Pool Size=0;Maximum Pool Size=100;Timeout=15;Command Timeout=30" -Provider Npgsql.EntityFrameworkCore.PostgreSQL -DataAnnotations -Context AppDbContext -ContextDir Data -OutputDir Models -NoOnConfiguring -Schemas catalog,geo,app -Tables "catalog.category","catalog.service","catalog.feature","catalog.payment_method","catalog.parameter_definition","catalog.parameter_value","geo.territory","app.business","app.branch","app.owner_identity","app.business_owner","app.branch_category","app.branch_service","app.branch_feature","app.branch_payment","app.branch_contact","app.opening_hour","app.holiday","app.branch_hour_override","app.service_price","app.branch_photo","app.review","app.review_reply","app.favorite","app.ad_placement","app.import_batch","app.import_row","app.search_synonym","app.event","app.event_hist","app.daily_metric","app.monthly_metric","app.audit_log" -Force
+```
