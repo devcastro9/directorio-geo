@@ -1,5 +1,6 @@
 -- Ejecutar DESPUES de 01_schema.sql. Las pruebas dejan la BD sin datos de prueba (ROLLBACK).
 BEGIN;
+
 DO $$
 DECLARE bid uuid; sid uuid; uid text:='framework-user-demo'; p geometry;
 BEGIN
@@ -25,4 +26,5 @@ BEGIN
   RAISE EXCEPTION 'Baja logica no surte efecto'; END IF;
  RAISE NOTICE 'Smoke tests de creacion, consulta, resenas, favoritos, historico y baja logica: OK';
 END $$;
+
 ROLLBACK;
