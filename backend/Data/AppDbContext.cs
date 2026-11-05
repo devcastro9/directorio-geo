@@ -1,17 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using backend.Models;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
-using backend.Models;
+using System;
 
 namespace backend.Data;
 
-public partial class AppDbContext : DbContext
+public partial class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>(options) //DbContext
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options)
-        : base(options)
-    {
-    }
-
     public virtual DbSet<AdPlacement> AdPlacements { get; set; }
 
     public virtual DbSet<AdminBusinessSummary> AdminBusinessSummaries { get; set; }
@@ -88,6 +83,9 @@ public partial class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        // Configurar las entidades de Identity
+        base.OnModelCreating(modelBuilder);
+        // Model Builder
         modelBuilder
             .HasPostgresExtension("btree_gist")
             .HasPostgresExtension("pg_trgm")
