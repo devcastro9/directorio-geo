@@ -32,5 +32,5 @@ public partial class OwnerIdentity
     public DateTime CreatedAt { get; set; }
 
     [InverseProperty("User")]
-    public virtual ICollection<BusinessOwner> BusinessOwners { get; set; } = new List<BusinessOwner>();
+    public virtual ICollection<BusinessOwner> BusinessOwners { get; set; } = [];
 }
