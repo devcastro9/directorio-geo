@@ -84,8 +84,7 @@ public partial class Branch
     public DateTime? DeletedAt { get; set; }
 
     [Column("deleted_by_user_id")]
-    [StringLength(200)]
-    public string? DeletedByUserId { get; set; }
+    public Guid? DeletedByUserId { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }

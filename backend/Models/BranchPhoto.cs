@@ -41,8 +41,7 @@ public partial class BranchPhoto
     public int SortOrder { get; set; }
 
     [Column("created_by_user_id")]
-    [StringLength(200)]
-    public string CreatedByUserId { get; set; } = null!;
+    public Guid CreatedByUserId { get; set; }
 
     [Column("deleted_at")]
     public DateTime? DeletedAt { get; set; }

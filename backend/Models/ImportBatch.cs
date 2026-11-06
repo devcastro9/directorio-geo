@@ -26,8 +26,7 @@ public partial class ImportBatch
     public string Status { get; set; } = null!;
 
     [Column("created_by_user_id")]
-    [StringLength(200)]
-    public string? CreatedByUserId { get; set; }
+    public Guid? CreatedByUserId { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }

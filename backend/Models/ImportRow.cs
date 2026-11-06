@@ -42,8 +42,7 @@ public partial class ImportRow
     public string? Reason { get; set; }
 
     [Column("reviewed_by_user_id")]
-    [StringLength(200)]
-    public string? ReviewedByUserId { get; set; }
+    public Guid? ReviewedByUserId { get; set; }
 
     [Column("reviewed_at")]
     public DateTime? ReviewedAt { get; set; }

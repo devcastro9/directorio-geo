@@ -49,8 +49,7 @@ public partial class AdPlacement
     public string? InvoiceRef { get; set; }
 
     [Column("created_by_user_id")]
-    [StringLength(200)]
-    public string? CreatedByUserId { get; set; }
+    public Guid? CreatedByUserId { get; set; }
 
     [Column("deleted_at")]
     public DateTime? DeletedAt { get; set; }

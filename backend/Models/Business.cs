@@ -55,19 +55,16 @@ public partial class Business
     public string? SourceKey { get; set; }
 
     [Column("created_by_user_id")]
-    [StringLength(200)]
-    public string? CreatedByUserId { get; set; }
+    public Guid? CreatedByUserId { get; set; }
 
     [Column("updated_by_user_id")]
-    [StringLength(200)]
-    public string? UpdatedByUserId { get; set; }
+    public Guid? UpdatedByUserId { get; set; }
 
     [Column("deleted_at")]
     public DateTime? DeletedAt { get; set; }
 
     [Column("deleted_by_user_id")]
-    [StringLength(200)]
-    public string? DeletedByUserId { get; set; }
+    public Guid? DeletedByUserId { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }

@@ -17,8 +17,7 @@ public partial class Review
     public Guid BranchId { get; set; }
 
     [Column("user_id")]
-    [StringLength(200)]
-    public string UserId { get; set; } = null!;
+    public Guid UserId { get; set; }
 
     [Column("rating")]
     public short Rating { get; set; }
@@ -41,8 +40,7 @@ public partial class Review
     public DateTime? ModeratedAt { get; set; }
 
     [Column("moderated_by_user_id")]
-    [StringLength(200)]
-    public string? ModeratedByUserId { get; set; }
+    public Guid? ModeratedByUserId { get; set; }
 
     [Column("deleted_at")]
     public DateTime? DeletedAt { get; set; }

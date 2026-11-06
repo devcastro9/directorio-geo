@@ -31,8 +31,7 @@ public partial class AuditLog
     public char Operation { get; set; }
 
     [Column("actor_user_id")]
-    [StringLength(200)]
-    public string? ActorUserId { get; set; }
+    public Guid? ActorUserId { get; set; }
 
     [Column("changed_at")]
     public DateTime ChangedAt { get; set; }

@@ -23,8 +23,7 @@ public partial class Event
     public DateTime OccurredAt { get; set; }
 
     [Column("user_id")]
-    [StringLength(200)]
-    public string? UserId { get; set; }
+    public Guid? UserId { get; set; }
 
     [Column("session_key")]
     [StringLength(128)]

@@ -11,8 +11,7 @@ public partial class OwnerIdentity
 {
     [Key]
     [Column("user_id")]
-    [StringLength(200)]
-    public string UserId { get; set; } = null!;
+    public Guid UserId { get; set; }
 
     [Column("verified_at")]
     public DateTime? VerifiedAt { get; set; }
@@ -28,8 +27,7 @@ public partial class OwnerIdentity
     public DateTime? RevokedAt { get; set; }
 
     [Column("verified_by_user_id")]
-    [StringLength(200)]
-    public string? VerifiedByUserId { get; set; }
+    public Guid? VerifiedByUserId { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }
