@@ -426,6 +426,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
         {
             entity.HasKey(e => e.UserId).HasName("owner_identity_pkey");
 
+            entity.Property(e => e.UserId).ValueGeneratedNever();
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
         });
 
