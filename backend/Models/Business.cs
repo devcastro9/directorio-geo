@@ -76,7 +76,7 @@ public partial class Business
     public virtual ICollection<AdPlacement> AdPlacements { get; set; } = new List<AdPlacement>();
 
     [InverseProperty("Business")]
-    public virtual Branch? Branch { get; set; }
+    public virtual ICollection<Branch> Branches { get; set; } = new List<Branch>();
 
     [InverseProperty("Business")]
     public virtual ICollection<BusinessOwner> BusinessOwners { get; set; } = new List<BusinessOwner>();

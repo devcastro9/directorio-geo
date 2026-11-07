@@ -111,13 +111,13 @@ public partial class Branch
     public virtual ICollection<BranchPayment> BranchPayments { get; set; } = new List<BranchPayment>();
 
     [InverseProperty("Branch")]
-    public virtual BranchPhoto? BranchPhoto { get; set; }
+    public virtual ICollection<BranchPhoto> BranchPhotos { get; set; } = new List<BranchPhoto>();
 
     [InverseProperty("Branch")]
     public virtual ICollection<BranchService> BranchServices { get; set; } = new List<BranchService>();
 
     [ForeignKey("BusinessId")]
-    [InverseProperty("Branch")]
+    [InverseProperty("Branches")]
     public virtual Business Business { get; set; } = null!;
 
     [InverseProperty("Branch")]

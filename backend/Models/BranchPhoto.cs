@@ -50,6 +50,6 @@ public partial class BranchPhoto
     public DateTime CreatedAt { get; set; }
 
     [ForeignKey("BranchId")]
-    [InverseProperty("BranchPhoto")]
+    [InverseProperty("BranchPhotos")]
     public virtual Branch Branch { get; set; } = null!;
 }

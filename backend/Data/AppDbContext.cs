@@ -137,10 +137,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
                 .HasFilter("(deleted_at IS NULL)")
                 .HasMethod("gist");
 
-            entity.HasIndex(e => e.BusinessId, "branch_primary_one_idx")
-                .IsUnique()
-                .HasFilter("(is_primary AND (deleted_at IS NULL))");
-
             entity.HasIndex(e => e.TerritoryId, "branch_territory_idx").HasFilter("(deleted_at IS NULL)");
 
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
@@ -151,7 +147,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Status).HasDefaultValueSql("'active'::character varying");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
-            entity.HasOne(d => d.Business).WithOne(p => p.Branch)
+            entity.HasOne(d => d.Business).WithMany(p => p.Branches)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("branch_business_id_fkey");
 
@@ -238,15 +234,11 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
 
             entity.HasIndex(e => new { e.BranchId, e.SortOrder }, "photo_branch_idx").HasFilter("(deleted_at IS NULL)");
 
-            entity.HasIndex(e => e.BranchId, "photo_primary_one_idx")
-                .IsUnique()
-                .HasFilter("(is_primary AND (deleted_at IS NULL))");
-
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.FileSize).HasComputedColumnSql("octet_length(photo_data)", true);
 
-            entity.HasOne(d => d.Branch).WithOne(p => p.BranchPhoto)
+            entity.HasOne(d => d.Branch).WithMany(p => p.BranchPhotos)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("branch_photo_branch_id_fkey");
         });

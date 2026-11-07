@@ -74,7 +74,7 @@ CREATE TABLE app.audit_log (
     entity_table character varying(63) NOT NULL,
     entity_key character varying(200) NOT NULL,
     operation character(1) NOT NULL,
-    actor_user_id character varying(200),
+    actor_user_id uuid,
     changed_at timestamp with time zone NOT NULL DEFAULT (clock_timestamp()),
     transaction_id xid8 NOT NULL DEFAULT (pg_current_xact_id()),
     old_value jsonb,
@@ -94,10 +94,10 @@ CREATE TABLE app.business (
     price_level smallint,
     source character varying(30) NOT NULL DEFAULT ('manual'::character varying),
     source_key character varying(200),
-    created_by_user_id character varying(200),
-    updated_by_user_id character varying(200),
+    created_by_user_id uuid,
+    updated_by_user_id uuid,
     deleted_at timestamp with time zone,
-    deleted_by_user_id character varying(200),
+    deleted_by_user_id uuid,
     created_at timestamp with time zone NOT NULL DEFAULT (now()),
     updated_at timestamp with time zone NOT NULL DEFAULT (now()),
     CONSTRAINT business_pkey PRIMARY KEY (id)
@@ -130,7 +130,7 @@ CREATE TABLE app.event (
     id uuid NOT NULL DEFAULT (uuidv7()),
     event_type character varying(50) NOT NULL,
     occurred_at timestamp with time zone NOT NULL DEFAULT (clock_timestamp()),
-    user_id character varying(200),
+    user_id uuid,
     session_key character varying(128),
     ip_address inet NOT NULL,
     user_agent character varying(1000) NOT NULL,
@@ -148,7 +148,7 @@ CREATE TABLE app.event_hist (
     id uuid NOT NULL DEFAULT (uuidv7()),
     event_type character varying(50) NOT NULL,
     occurred_at timestamp with time zone NOT NULL DEFAULT (clock_timestamp()),
-    user_id character varying(200),
+    user_id uuid,
     session_key character varying(128),
     ip_address inet NOT NULL,
     user_agent character varying(1000) NOT NULL,
@@ -180,7 +180,7 @@ CREATE TABLE app.import_batch (
     file_name character varying(255) NOT NULL,
     file_format character varying(10) NOT NULL,
     status character varying(20) NOT NULL DEFAULT ('uploaded'::character varying),
-    created_by_user_id character varying(200),
+    created_by_user_id uuid,
     created_at timestamp with time zone NOT NULL DEFAULT (now()),
     completed_at timestamp with time zone,
     total_rows integer NOT NULL,
@@ -197,12 +197,12 @@ CREATE TABLE app.monthly_metric (
 );
 
 CREATE TABLE app.owner_identity (
-    user_id character varying(200) NOT NULL,
+    user_id uuid NOT NULL,
     verified_at timestamp with time zone,
     verification_method character varying(30),
     expires_at timestamp with time zone,
     revoked_at timestamp with time zone,
-    verified_by_user_id character varying(200),
+    verified_by_user_id uuid,
     created_at timestamp with time zone NOT NULL DEFAULT (now()),
     CONSTRAINT owner_identity_pkey PRIMARY KEY (user_id)
 );
@@ -321,9 +321,9 @@ CREATE TABLE "AspNetUserTokens" (
 CREATE TABLE app.business_owner (
     id uuid NOT NULL DEFAULT (uuidv7()),
     business_id uuid NOT NULL,
-    user_id character varying(200) NOT NULL,
+    user_id uuid NOT NULL,
     verified_at timestamp with time zone,
-    verified_by_user_id character varying(200),
+    verified_by_user_id uuid,
     revoked_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT (now()),
     CONSTRAINT business_owner_pkey PRIMARY KEY (id),
@@ -367,7 +367,7 @@ CREATE TABLE app.branch (
     source character varying(30) NOT NULL DEFAULT ('manual'::character varying),
     source_key character varying(200),
     deleted_at timestamp with time zone,
-    deleted_by_user_id character varying(200),
+    deleted_by_user_id uuid,
     created_at timestamp with time zone NOT NULL DEFAULT (now()),
     updated_at timestamp with time zone NOT NULL DEFAULT (now()),
     CONSTRAINT branch_pkey PRIMARY KEY (id),
@@ -398,7 +398,7 @@ CREATE TABLE app.ad_placement (
     priority integer NOT NULL,
     status character varying(20) NOT NULL DEFAULT ('draft'::character varying),
     invoice_ref character varying(100),
-    created_by_user_id character varying(200),
+    created_by_user_id uuid,
     deleted_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT (now()),
     updated_at timestamp with time zone NOT NULL DEFAULT (now()),
@@ -468,7 +468,7 @@ CREATE TABLE app.branch_photo (
     alt_text character varying(300),
     is_primary boolean NOT NULL,
     sort_order integer NOT NULL,
-    created_by_user_id character varying(200) NOT NULL,
+    created_by_user_id uuid NOT NULL,
     deleted_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT (now()),
     CONSTRAINT branch_photo_pkey PRIMARY KEY (id),
@@ -486,7 +486,7 @@ CREATE TABLE app.branch_service (
 );
 
 CREATE TABLE app.favorite (
-    user_id character varying(200) NOT NULL,
+    user_id uuid NOT NULL,
     branch_id uuid NOT NULL,
     created_at timestamp with time zone NOT NULL DEFAULT (now()),
     deleted_at timestamp with time zone,
@@ -504,7 +504,7 @@ CREATE TABLE app.import_row (
     matched_branch_id uuid,
     decision character varying(20) NOT NULL DEFAULT ('pending'::character varying),
     reason text,
-    reviewed_by_user_id character varying(200),
+    reviewed_by_user_id uuid,
     reviewed_at timestamp with time zone,
     CONSTRAINT import_row_pkey PRIMARY KEY (id),
     CONSTRAINT import_row_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES app.import_batch (id),
@@ -526,14 +526,14 @@ CREATE TABLE app.opening_hour (
 CREATE TABLE app.review (
     id uuid NOT NULL DEFAULT (uuidv7()),
     branch_id uuid NOT NULL,
-    user_id character varying(200) NOT NULL,
+    user_id uuid NOT NULL,
     rating smallint NOT NULL,
     title character varying(200),
     body text,
     moderation_status character varying(20) NOT NULL DEFAULT ('visible'::character varying),
     moderation_reason text,
     moderated_at timestamp with time zone,
-    moderated_by_user_id character varying(200),
+    moderated_by_user_id uuid,
     deleted_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT (now()),
     updated_at timestamp with time zone NOT NULL DEFAULT (now()),
@@ -556,7 +556,7 @@ CREATE TABLE app.service_price (
 CREATE TABLE app.review_reply (
     id uuid NOT NULL DEFAULT (uuidv7()),
     review_id uuid NOT NULL,
-    owner_user_id character varying(200) NOT NULL,
+    owner_user_id uuid NOT NULL,
     reply_text text NOT NULL,
     deleted_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT (now()),
@@ -593,8 +593,6 @@ CREATE INDEX branch_business_idx ON app.branch (business_id) WHERE (deleted_at I
 
 CREATE INDEX branch_location_gix ON app.branch USING gist (location) WHERE (deleted_at IS NULL);
 
-CREATE UNIQUE INDEX branch_primary_one_idx ON app.branch (business_id) WHERE (is_primary AND (deleted_at IS NULL));
-
 CREATE UNIQUE INDEX branch_slug_key ON app.branch (slug);
 
 CREATE UNIQUE INDEX branch_source_source_key_key ON app.branch (source, source_key);
@@ -612,8 +610,6 @@ CREATE UNIQUE INDEX branch_hour_override_branch_id_service_date_key ON app.branc
 CREATE INDEX "IX_branch_payment_method_id" ON app.branch_payment (method_id);
 
 CREATE INDEX photo_branch_idx ON app.branch_photo (branch_id, sort_order) WHERE (deleted_at IS NULL);
-
-CREATE UNIQUE INDEX photo_primary_one_idx ON app.branch_photo (branch_id) WHERE (is_primary AND (deleted_at IS NULL));
 
 CREATE INDEX "IX_branch_service_service_id" ON app.branch_service (service_id);
 
@@ -702,7 +698,7 @@ CREATE INDEX territory_parent_idx ON geo.territory (parent_id);
 CREATE UNIQUE INDEX territory_territory_type_code_ine_key ON geo.territory (territory_type, code_ine);
 
 INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-VALUES ('20261106010414_InitialIdentity', '10.0.14');
+VALUES ('20261107171850_InitialIdentity', '10.0.14');
 
 COMMIT;
 
