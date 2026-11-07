@@ -280,6 +280,8 @@ CREATE OR REPLACE FUNCTION CATALOG.PARAM_INT (P_CODE TEXT) RETURNS INTEGER LANGU
  SELECT (catalog.get_parameter(p_code)#>>'{}')::integer $$;
 
 -- Territorio boliviano. INE autoridad principal, OSM complementario.
+-- Los poligonos se usan internamente para asignar/verificar ubicaciones.
+-- El visitante selecciona zonas por nombre, no dibuja poligonos ni usa GIS.
 CREATE TABLE GEO.TERRITORY (
 	ID UUID PRIMARY KEY DEFAULT UUIDV7(),
 	PARENT_ID UUID REFERENCES GEO.TERRITORY (ID),
@@ -458,11 +460,12 @@ CREATE TABLE APP.BRANCH (
 		OR MIN_PRICE_BOB <= MAX_PRICE_BOB
 	)
 );
+
 /*
 CREATE UNIQUE INDEX BRANCH_PRIMARY_ONE_IDX ON APP.BRANCH (BUSINESS_ID)
 WHERE
-	IS_PRIMARY
-	AND DELETED_AT IS NULL;
+IS_PRIMARY
+AND DELETED_AT IS NULL;
 */
 CREATE INDEX BRANCH_BUSINESS_IDX ON APP.BRANCH (BUSINESS_ID)
 WHERE
@@ -778,11 +781,12 @@ CREATE TABLE APP.BRANCH_PHOTO (
 	CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	CHECK (OCTET_LENGTH(PHOTO_DATA) > 0)
 );
+
 /*
 CREATE UNIQUE INDEX PHOTO_PRIMARY_ONE_IDX ON APP.BRANCH_PHOTO (BRANCH_ID)
 WHERE
-	IS_PRIMARY
-	AND DELETED_AT IS NULL;
+IS_PRIMARY
+AND DELETED_AT IS NULL;
 */
 CREATE INDEX PHOTO_BRANCH_IDX ON APP.BRANCH_PHOTO (BRANCH_ID, SORT_ORDER)
 WHERE
@@ -1113,8 +1117,9 @@ CREATE OR REPLACE FUNCTION APP.FIND_BRANCHES (
 	P_BBOX GEOGRAPHY DEFAULT NULL,
 	P_CATEGORY_ID UUID DEFAULT NULL,
 	P_OPEN_NOW BOOLEAN DEFAULT FALSE,
-	P_LIMIT INT DEFAULT 50,
-	P_OFFSET INT DEFAULT 0
+	P_LIMIT INT DEFAULT 20,
+	P_OFFSET INT DEFAULT 0,
+	P_TERRITORY_ID UUID DEFAULT NULL
 ) RETURNS TABLE (
 	BRANCH_ID UUID,
 	BUSINESS_ID UUID,
@@ -1127,10 +1132,10 @@ CREATE OR REPLACE FUNCTION APP.FIND_BRANCHES (
 ) LANGUAGE PLPGSQL STABLE AS $$
 DECLARE q text := nullif(app.normalize(btrim(coalesce(p_text,''))),''); cg geography;
 BEGIN
- IF p_limit NOT BETWEEN 1 AND 200 OR p_offset NOT BETWEEN 0 AND 100000 THEN
+ IF p_limit NOT BETWEEN 1 AND 100 OR p_offset NOT BETWEEN 0 AND 2000 THEN
   RAISE EXCEPTION 'Paginacion invalida'; END IF;
  IF length(coalesce(p_text,''))>200 THEN RAISE EXCEPTION 'Texto demasiado largo'; END IF;
- IF p_radius_m IS NOT NULL AND (p_center IS NULL OR p_radius_m NOT BETWEEN 1 AND 2000000) THEN
+ IF p_radius_m IS NOT NULL AND (p_center IS NULL OR p_radius_m NOT BETWEEN 1 AND 50000) THEN
   RAISE EXCEPTION 'Radio invalido'; END IF;
  IF p_center IS NOT NULL AND (ST_SRID(p_center::geometry)<>4326 OR ST_GeometryType(p_center::geometry)<>'ST_Point') THEN
   RAISE EXCEPTION 'Centro debe ser Point SRID 4326'; END IF;
@@ -1140,6 +1145,13 @@ BEGIN
  WITH RECURSIVE cats(id) AS (
  SELECT p_category_id WHERE p_category_id IS NOT NULL
  UNION ALL SELECT ci.id FROM catalog.category ci JOIN cats c ON ci.parent_id=c.id WHERE ci.active
+ ), territories(id) AS (
+ SELECT t.id FROM geo.territory t
+ WHERE t.id=p_territory_id AND t.active
+ UNION ALL
+ SELECT child.id FROM geo.territory child
+ JOIN territories parent ON child.parent_id=parent.id
+ WHERE child.active
  ), synonyms AS (
  SELECT q AS term WHERE q IS NOT NULL
  UNION ALL SELECT app.normalize(ss.synonym) FROM app.search_synonym ss
@@ -1150,6 +1162,10 @@ BEGIN
  FROM app.published_branch pb
  WHERE (p_bbox IS NULL OR ST_Intersects(pb.location,p_bbox))
  AND (p_radius_m IS NULL OR ST_DWithin(pb.location,cg,p_radius_m))
+ AND (p_territory_id IS NULL OR EXISTS (
+   SELECT 1 FROM app.branch branch JOIN territories t ON t.id=branch.territory_id
+   WHERE branch.id=pb.branch_id
+ ))
  AND (p_category_id IS NULL OR EXISTS(SELECT 1 FROM app.branch_category bc JOIN cats c ON c.id=bc.category_id
  WHERE bc.branch_id=pb.branch_id AND bc.active))
  AND (q IS NULL OR EXISTS(SELECT 1 FROM synonyms sy WHERE
@@ -1717,15 +1733,15 @@ VALUES
 		'integer',
 		'10000',
 		1,
-		2000000
+		50000
 	),
 	(
 		'search.default_limit',
 		'Limite por pagina',
 		'integer',
-		'50',
+		'20',
 		1,
-		200
+		100
 	),
 	(
 		'review.moderation_post',
@@ -1874,13 +1890,15 @@ CREATE TABLE "AspNetUserTokens" (
 );
 
 CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
-    "MigrationId" character varying(150) NOT NULL,
-    "ProductVersion" character varying(32) NOT NULL,
-    CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
+	"MigrationId" CHARACTER VARYING(150) NOT NULL,
+	"ProductVersion" CHARACTER VARYING(32) NOT NULL,
+	CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
 );
 
-INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-VALUES ('20261107171850_InitialIdentity', '10.0.14');
+INSERT INTO
+	"__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+VALUES
+	('20261107171850_InitialIdentity', '10.0.14');
 
 CREATE INDEX "IX_AspNetRoleClaims_RoleId" ON "AspNetRoleClaims" ("RoleId");
 
