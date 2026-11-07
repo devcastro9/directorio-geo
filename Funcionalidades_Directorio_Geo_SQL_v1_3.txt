@@ -1,0 +1,155 @@
+FUNCIONALIDADES POSIBLES DEL DIRECTORIO GEO DE NEGOCIOS
+Basadas en: Directorio_Geo_Esquema_v1_3.sql
+Fecha: 2026-11-07
+
+OBJETIVO
+Directorio público de negocios de Bolivia diseñado para visitantes sin conocimientos
+informáticos, geográficos ni estadísticos. El mapa y los filtros deben ser fáciles
+de usar; latitud, longitud, bbox y geometrías son detalles internos de la API.
+
+LEYENDA
+[S] Soporte en el esquema SQL: tablas, vistas, funciones o índices relevantes.
+[P] Soporte parcial: falta lógica específica, integración o contrato adicional.
+[F] Funcionalidad futura: PostGIS permite implementarla, pero no hay módulo
+    funcional completo en el SQL proporcionado.
+IMPORTANTE: [S] NO significa que la función esté lista para el usuario; se
+requieren API, interfaz, autenticación/autorización y pruebas.
+
+1. VISITANTE ANÓNIMO (FUNCIONES PÚBLICAS PRIORITARIAS)
+[S] Buscar sucursales por nombre o términos de búsqueda.
+    Base: app.find_branches, app.normalize, app.search_synonym.
+[S] Obtener sugerencias al escribir.
+    Base: app.autocomplete.
+[S] Filtrar por categoría, incluidas subcategorías según la lógica de consulta.
+    Base: catalog.category, app.branch_category, app.find_branches.
+[S] Buscar en un departamento, provincia, municipio, zona o barrio disponible.
+    Base: geo.territory, jerarquía territorial y filtro de territorio en búsqueda.
+[S] Mostrar sucursales cercanas y su distancia aproximada en línea directa.
+    Base: app.branch.location geography(Point,4326), PostGIS.
+[S] Buscar en un radio acotado alrededor de una ubicación elegida.
+    Base: PostGIS, app.find_branches.
+[S] Mostrar resultados en el área visible al mover el mapa.
+    Base: bbox, PostGIS, app.find_branches.
+[S] Consultar fichas de negocios y sus múltiples sucursales.
+    Base: app.business, app.branch, app.published_branch.
+[S] Ver dirección, teléfono, WhatsApp, sitio web y redes de una sucursal.
+    Base: app.branch_contact.
+[S] Consultar horarios habituales y excepciones (incluidos festivos).
+    Base: app.opening_hour, app.holiday, app.branch_hour_override,
+    app.is_open_at.
+[S] Mostrar fotos activas de sucursales.
+    Base: app.branch_photo (BYTEA en el esquema actual).
+[S] Mostrar categorías, servicios, características y medios de pago.
+    Base: catalog.*, app.branch_category, app.branch_service,
+    app.branch_feature, app.branch_payment.
+[S] Mostrar precios orientativos o servicios con precios registrados.
+    Base: app.branch y app.service_price.
+[S] Mostrar reseñas visibles y calificaciones disponibles.
+    Base: app.review, app.review_reply.
+[P] Abrir indicaciones de llegada en una aplicación externa de mapas.
+    La BD proporciona coordenadas; la navegación se integra en el frontend.
+[P] Permitir «cerca de mí» previa autorización del navegador.
+    La geolocalización se obtiene del cliente, no de PostgreSQL.
+
+2. USUARIO REGISTRADO (POSTERIOR AL NÚCLEO PÚBLICO)
+[S] Registrar cuentas y administrar roles mediante ASP.NET Core Identity.
+    Base: AspNetUsers, AspNetRoles y tablas relacionadas.
+[S] Guardar y consultar sucursales favoritas.
+    Base: app.favorite; en la API preferir PUT/DELETE idempotentes, no toggle.
+[S] Publicar calificaciones y reseñas; consultar sus respuestas.
+    Base: app.review, app.review_reply.
+[P] Inicio de sesión, recuperación de cuenta y cierre de sesión.
+    Requieren servicios de autenticación y mecanismos de entrega/verificación.
+[P] JWT con refresh token rotativo, revocación y control de sesiones.
+    No basta con las tablas estándar de Identity: falta cerrar persistencia
+    de familias de tokens y política de expiración.
+
+3. PROPIETARIO VERIFICADO
+[S] Asociar personas verificadas con uno o más negocios.
+    Base: app.owner_identity, app.business_owner.
+[S] Registrar negocio y primera sucursal en operación atómica.
+    Base: app.create_business_with_branch y restricciones de integridad.
+[S] Editar información comercial y administrar sucursales, sujeto a permisos.
+    Base: app.business, app.branch y tablas relacionadas.
+[S] Administrar fotos y seleccionar la principal.
+    Base: app.branch_photo, app.add_photo, app.set_primary_photo.
+[S] Responder reseñas según reglas del esquema.
+    Base: app.review_reply, app.reply_to_review.
+[P] Solicitar verificación con evidencia y seguimiento de estados.
+    Falta cerrar entidad/procedimiento de solicitudes, protección y retención
+    de evidencias. app.owner_identity no representa por sí sola todo el flujo.
+[P] Permisos reales por negocio.
+    La API debe comprobar asociación vigente e identidad verificada en cada
+    operación; el rol BusinessOwner por sí solo no autoriza cualquier negocio.
+
+4. ADMINISTRACIÓN
+[S] Crear, modificar, publicar, despublicar y dar baja lógica a negocios.
+    Base: app.business, app.admin_update_business, app.admin_publish_business,
+    app.soft_delete_business; transiciones de estado requieren contrato cerrado.
+[S] Crear, modificar y dar baja lógica a sucursales.
+    Base: app.branch, app.soft_delete_branch.
+[S] Administrar categorías, servicios, características y medios de pago.
+    Base: catalog.category, service, feature, payment_method.
+[S] Cargar y mantener departamentos, provincias, municipios, zonas o barrios.
+    Base: geo.territory y geo.resolve_territory.
+[S] Gestionar asociaciones de propietarios y revocaciones.
+    Base: app.owner_identity y app.business_owner.
+[S] Moderar reseñas y consultar auditoría.
+    Base: app.moderate_review, app.audit_log y funciones de auditoría.
+[S] Administrar parámetros configurables del sistema.
+    Base: catalog.parameter_definition, catalog.parameter_value.
+[P] Importar CSV/XLSX y revisar posibles duplicados.
+    Base: app.import_batch, app.import_row, app.find_import_duplicates;
+    la API/worker debe leer archivos, validar y aplicar cambios.
+
+5. OPERACIÓN Y MONETIZACIÓN (NO NECESARIAS PARA EL MVP PÚBLICO)
+[S] Registrar visitas e interacciones medibles (no equivalen a ventas).
+    Base: app.event.
+[S] Consolidar métricas diarias y mensuales.
+    Base: app.daily_metric, app.monthly_metric y funciones de consolidación.
+[S] Archivar eventos y consultar vistas de dashboard.
+    Base: app.event_hist, app.archive_events y vistas de métricas.
+[S] Gestionar anuncios y períodos de vigencia.
+    Base: app.ad_placement, app.active_ads y app.expire_ads.
+[P] Ejecutar periódicamente consolidaciones, archivado y expiración.
+    Las funciones SQL requieren un programador/worker; no se ejecutan solas.
+[P] Garantizar políticas de privacidad y retención de datos de eventos.
+    Requiere definiciones operativas y legales adicionales.
+
+6. CAPACIDADES GEOESPACIALES QUE NO ES NECESARIO EXPONER AL VISITANTE
+[S] Almacenar puntos de sucursales y límites territoriales.
+[S] Asignar un territorio a una ubicación cuando existe cobertura válida.
+[S] Filtrar ubicaciones por proximidad, viewport y jerarquía territorial.
+[P] Mostrar contornos sencillos de barrios o municipios en el mapa.
+    Requiere endpoint/GeoJSON simplificado y control de tamaños.
+[F] Dibujar polígonos personalizados para buscar dentro de ellos.
+[F] Mapas de calor, densidad por km², mapas temáticos y comparación de zonas.
+[F] Superposiciones y análisis de cobertura comercial.
+    PostGIS dispone de operaciones geométricas, pero estos módulos no están
+    especificados ni son necesarios para encontrar negocios.
+
+7. PRIORIDAD DE DESARROLLO PROPUESTA (SIN SOBREINGENIERÍA)
+P0. Integridad de datos, publicación segura, permisos administrativos,
+    validaciones espaciales y errores coherentes.
+P1. Buscador público, categorías, territorios, resultados cercanos, mapa,
+    fichas, contactos, horarios, imágenes y administración mínima del catálogo.
+P2. Usuarios registrados, propietarios, favoritos, reseñas y moderación,
+    una vez cerradas políticas de sesiones y verificación.
+P3. Importaciones ampliadas, publicidad y métricas, si se requieren.
+NO PRIORIZAR. Mapas de calor, herramientas estadísticas, comparación de zonas,
+    polígonos dibujados por visitantes, motor de rutas propio ni microservicios.
+
+8. PENDIENTES TÉCNICOS ANTES DE IMPLEMENTACIÓN COMPLETA
+- Cerrar transiciones de publicación y verificación de propietarios.
+- Definir concurrencia optimista y errores HTTP para operaciones de edición.
+- Establecer límites de búsquedas, fotos, importaciones y rate limiting.
+- Definir persistencia/rotación de refresh tokens y política de privacidad.
+- Validar SQL contra PostgreSQL 18 y PostGIS reales, con pruebas de índices,
+  restricciones, consultas y seguridad.
+- Verificar con datos reales qué barrios/zonas tienen límites confiables.
+
+CONCLUSIÓN
+El esquema v1.3 permite construir un directorio público amplio sin obligar al
+visitante a interpretar coordenadas o análisis GIS. La prioridad es ofrecer
+búsquedas comprensibles y fichas útiles. Las capacidades espaciales avanzadas
+pueden permanecer internas o aplazarse hasta existir una necesidad verificable.

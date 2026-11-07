@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace backend.Controllers
 {
-    [Route("api/[controller]")]
+    [Route("api/v1/[controller]")]
     [ApiController]
     public class PruebaController(AppDbContext context) : ControllerBase
     {
