@@ -12,7 +12,8 @@ namespace backend.Controllers
     public class PruebaController(AppDbContext context) : ControllerBase
     {
         [HttpGet]
-        public async Task<ActionResult<List<ParameterDefinition>>> Get() {
+        public async Task<ActionResult<List<ParameterDefinition>>> Get()
+        {
             var result = await context.ParameterDefinitions.ToListAsync();
             return Ok(result);
         }
