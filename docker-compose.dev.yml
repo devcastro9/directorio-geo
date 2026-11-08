@@ -1,0 +1,9 @@
+# Uso: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+# Las imagenes siguen siendo builds de produccion; no hay hot reload.
+services:
+  db:
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+  backend:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development

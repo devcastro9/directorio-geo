@@ -2,72 +2,82 @@ name: geodirectorio
 
 services:
   db:
+    image: geodirectorio-db:pg18-postgis3.6
     build:
       context: ./db
-      dockerfile: Dockerfile
-    container_name: postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB en .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Define POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
       TZ: America/La_Paz
       PGTZ: America/La_Paz
     volumes:
       - pgdata:/var/lib/postgresql
       - ./db/init:/docker-entrypoint-initdb.d:ro
-    ports:
-      - "127.0.0.1:5432:5432" # solo accesible desde tu máquina
+    networks:
+      - database
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 30s
 
   pgadmin:
     image: dpage/pgadmin4:9.18.0
-    container_name: pgadmin
+    profiles: [tools]
     restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin12345}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-}
       PGADMIN_CONFIG_SERVER_MODE: "False"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
     ports:
-      - "127.0.0.1:5050:80"
+      - "127.0.0.1:${PGADMIN_PORT:-5050}:80"
+    networks:
+      - database
+      - default
     depends_on:
       db:
         condition: service_healthy
 
   backend:
-    container_name: backend
+    image: geodirectorio-backend:net10
     build:
       context: ./backend
-      dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
     ports:
-      - "8000:8080"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8080"
     environment:
-      ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Pooling=true;Minimum Pool Size=0;Maximum Pool Size=100;Timeout=15;Command Timeout=30
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__DefaultConnection: 'Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password="${POSTGRES_PASSWORD}";Pooling=true;Minimum Pool Size=0;Maximum Pool Size=100;Timeout=15;Command Timeout=30'
+    networks:
+      - database
+      - default
     depends_on:
       db:
         condition: service_healthy
 
   frontend:
-    container_name: frontend
+    image: geodirectorio-frontend:nuxt4
     build:
       context: ./frontend
-      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "3000:3000"
-    depends_on:
-      backend:
-        condition: service_started
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  database:
+    internal: true
 
 volumes:
   pgdata:

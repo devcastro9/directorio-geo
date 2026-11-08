@@ -1,16 +1,21 @@
-# Repository metadata and local configuration
 .git
-.gitignore
-.env
-.env.*
-!.env.example
-.venv
-
-# Dependencies and generated output
+**/.vs
+**/.vscode
+**/.idea
+**/.env
+**/.env.*
+**/secrets.json
+**/appsettings.Local.json
+**/appsettings.*.local.json
+**/*.pfx
+**/*.p12
+**/*.key
+**/*.pem
 **/node_modules
 **/.nuxt
 **/.output
 **/.nitro
+**/.data
 **/.cache
 **/dist
 **/bin
@@ -18,16 +23,15 @@
 **/artifacts
 **/publish
 **/TestResults
+**/coverage
 **/.pnpm-store
-
-# Local files and logs
 **/*.log
 **/*.tmp
 **/*.temp
 **/*.user
 **/*.suo
-**/.vscode
-**/.vs
-**/.idea
 **/.DS_Store
 **/Thumbs.db
+**/pgdata
+**/*.dump
+**/*.backup

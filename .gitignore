@@ -1,299 +1,99 @@
-
-# ============================================================
-# BoliviaNegocios - Monorepo
-# Frontend: Nuxt / Vue 3 / TypeScript
-# Backend: ASP.NET Core 10 Web API / JWT / EF Core
-# Database: PostgreSQL 18 / PostGIS
-# ============================================================
-
-
-# ------------------------------------------------------------
-# Secrets and environment variables
-# ------------------------------------------------------------
+# Entorno privado y credenciales; conservar plantillas compartidas
 .env
 .env.*
 !.env.example
 !.env.*.example
-
-# Local credentials
 secrets.json
+credentials.json
 *.pfx
 *.p12
 *.key
 *.pem
-
-# ASP.NET Core local configuration
 appsettings.Local.json
 appsettings.*.local.json
-appsettings.Development.local.json
-
-# JWT private keys and credentials
-jwt-private*
-jwt-secret*
-private-key*
-credentials.json
-
-
-# ============================================================
-# FRONTEND - Nuxt / Vue 3 / TypeScript
-# ============================================================
-
-# Dependencies
-node_modules/
-
-# Nuxt generated files
-.nuxt/
-.output/
-.data/
-.cache/
-.nitro/
-
-# Build outputs
-dist/
-.output-public/
-
-# Package manager cache
-.npm/
-.pnpm-store/
-.yarn/cache/
-.yarn/unplugged/
-.yarn/build-state.yml
-.yarn/install-state.gz
-
-# Package manager logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# TypeScript
-*.tsbuildinfo
-
-# Testing
-coverage/
-.nyc_output/
-.playwright/
-playwright-report/
-test-results/
-__screenshots__/
-*.lcov
-
-# Vitest
-.vitest/
-
-# ESLint cache
-.eslintcache
-.stylelintcache
-.turbo/
-
-# Local runtime files
-*.pid
-*.seed
-
-
-# ============================================================
-# BACKEND - ASP.NET Core 10 Web API
-# ============================================================
-
-# Build directories
-[Bb]in/
-[Oo]bj/
-[Dd]ebug/
-[Rr]elease/
-artifacts/
-publish/
-publish_output/
-
-# Generated assemblies
-*.dll
-*.exe
-*.pdb
-*.mdb
-
-# .NET generated files
-*.cache
-*.deps.json
-*.runtimeconfig.dev.json
-
-# ASP.NET Core logs
-logs/
-*.log
-
-# Visual Studio
-.vs/
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
-*.rsuser
-
-# Visual Studio diagnostics
-*.diagsession
-*.diaglog
-*.psess
-*.vsp
-*.vspx
-*.coverage
-*.coveragexml
-
-# JetBrains Rider / ReSharper
-.idea/
-_ReSharper*/
-*.DotSettings.user
-*.sln.iml
-*.iws
-*.ipr
-
-# NuGet generated packages
-*.nupkg
-*.snupkg
-packages/
-
-# Local NuGet package cache
-.nuget/packages/
-
-# Local NuGet configuration
 NuGet.Local.Config
 
-# .NET testing
+# .NET: compilacion, pruebas y diagnosticos
+[Bb]in/
+[Oo]bj/
+.vs/
+artifacts/
+publish/
 TestResults/
+*.user
+*.suo
+*.rsuser
+*.userosscache
+*.sln.docstates
+*.nupkg
+*.snupkg
+*.diagsession
+*.diaglog
+*.coverage
+*.coveragexml
 coverage.cobertura.xml
 coverage.opencover.xml
 
+# Nuxt / Node: no ignorar lockfiles
+node_modules/
+.nuxt/
+.output/
+.nitro/
+.data/
+dist/
+.cache/
+.npm/
+.pnpm-store/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
 
-# ============================================================
-# ENTITY FRAMEWORK CORE
-# ============================================================
-
-# IMPORTANT:
-# Do NOT ignore EF Core migrations.
-# Migrations must be versioned in Git.
-
-# Keep:
-# Migrations/
-# *Migration.cs
-# *ModelSnapshot.cs
-
-
-# ============================================================
-# POSTGRESQL / POSTGIS
-# ============================================================
-
-# Database backups
+# PostgreSQL: conservar SQL y migraciones EF
+/pgdata/
+/postgres-data/
+/postgres_data/
+/db-data/
+/db/data/
+/db/backups/
 *.dump
 *.backup
-*.bak
 *.sql.gz
 *.sql.zip
-
-# PostgreSQL runtime files
 postmaster.pid
 postmaster.opts
-pgdata/
-postgres-data/
-postgres_data/
 
-# Local database storage
-db-data/
-database-data/
-*.sqlite
-*.sqlite3
-*.db
-*.db-shm
-*.db-wal
+# Docker: overrides privados; dev compartido sigue versionado
+/docker-compose.override.yml
+/docker-compose.override.yaml
+/compose.override.yml
+/compose.override.yaml
+/docker-data/
 
-# IMPORTANT:
-# Keep database schema and migration SQL files
-# tracked in Git.
-
-# Keep:
-# database/schema/
-# database/migrations/
-# database/seeds/
-# *.sql
-
-
-# ============================================================
-# DOCKER
-# ============================================================
-
-# Local Docker overrides
-docker-compose.override.yml
-compose.override.yml
-
-# Local Docker environment
-docker/.env
-docker/*.env
-
-# Docker volumes
-volumes/
-docker-data/
-
-
-# ============================================================
-# IDE / EDITORS
-# ============================================================
-
-# VS Code
+# IDE: conservar configuraciones compartidas de VS Code
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
 !.vscode/launch.json
 !.vscode/tasks.json
+.idea/
+_ReSharper*/
+*.DotSettings.user
 
-# Temporary editor files
+# Logs, temporales y sistema operativo
+logs/
+*.log
+*.tmp
+*.temp
 *.swp
 *.swo
 *~
-*.orig
-*.rej
-
-# Temporary files
-*.tmp
-*.temp
-*.old
-*.lock.tmp
-*.pid
-
-
-# ============================================================
-# OPERATING SYSTEM
-# ============================================================
-
-# macOS
 .DS_Store
-.AppleDouble
-.LSOverride
-
-# Windows
 Thumbs.db
-Thumbs.db:encryptable
-ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
-
-# Linux
-*~
-.fuse_hidden*
-.directory
-.Trash-*
-.nfs*
-
-
-# ============================================================
-# DOCUMENTATION / GENERATED OUTPUT
-# ============================================================
-
-# Generated documentation
-docs/_build/
-site/
-
-# Temporary exports
-exports/
-tmp/
-temp/
-
-
-# ============================================================
-# END
-# ============================================================
+/tmp/
+/temp/
