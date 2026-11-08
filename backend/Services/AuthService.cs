@@ -1,6 +1,6 @@
 ﻿namespace backend.Services
 {
-    public class AuthService
+    public class AuthService : IAuthService
     {
     }
 }

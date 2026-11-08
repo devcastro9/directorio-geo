@@ -1,4 +1,5 @@
 using backend.Data;
+using backend.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -13,14 +14,35 @@ namespace backend
         public static void Main(string[] args)
         {
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
-            // Base de datos
+            // Database
             builder.Services.AddDbContext<AppDbContext>(options =>
-                options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"),
-                npgsql => npgsql.UseNetTopologySuite()
-            ));
+            {
+                options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), npgsql =>
+                {
+                    npgsql.UseNetTopologySuite();
+                    npgsql.CommandTimeout(30);
+                });
+                if (builder.Environment.IsDevelopment())
+                {
+                    options.EnableSensitiveDataLogging();
+                    options.EnableDetailedErrors();
+                }
+            });
             // Add services to the container.
-
+            builder.Services.AddScoped<IAuthService, AuthService>();
+            // Controllers
             builder.Services.AddControllers();
+            // CORS
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("CorsPolicy", policy =>
+                {
+                    policy
+                        .AllowAnyOrigin()
+                        .AllowAnyHeader()
+                        .AllowAnyMethod();
+                });
+            });
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             builder.Services.AddOpenApi();
 
@@ -32,11 +54,11 @@ namespace backend
                 app.MapOpenApi();
                 app.MapScalarApiReference();
             }
-
+            //Cors
+            app.UseCors("CorsPolicy");
             //app.UseHttpsRedirection();
 
             //app.UseAuthorization();
-
 
             app.MapControllers();
 
