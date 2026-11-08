@@ -2,6 +2,10 @@
 # Las imagenes siguen siendo builds de produccion; no hay hot reload.
 services:
   db:
+    # Docker necesita una red no interna para publicar el puerto en Windows.
+    networks:
+      - database
+      - default
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
   backend:

@@ -5,6 +5,7 @@ services:
     image: geodirectorio-db:pg18-postgis3.6
     build:
       context: ./db
+    container_name: db
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB en .env}
@@ -26,6 +27,7 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4:9.18.0
+    container_name: pgadmin4
     profiles: [tools]
     restart: unless-stopped
     environment:
@@ -45,6 +47,7 @@ services:
 
   backend:
     image: geodirectorio-backend:net10
+    container_name: backend
     build:
       context: ./backend
     restart: unless-stopped
@@ -63,6 +66,7 @@ services:
 
   frontend:
     image: geodirectorio-frontend:nuxt4
+    container_name: frontend
     build:
       context: ./frontend
     restart: unless-stopped
