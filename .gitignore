@@ -196,6 +196,11 @@ postgres_data/
 # Local database storage
 db-data/
 database-data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
 
 # IMPORTANT:
 # Keep database schema and migration SQL files
@@ -222,6 +227,7 @@ docker/*.env
 
 # Docker volumes
 volumes/
+docker-data/
 
 
 # ============================================================
@@ -247,6 +253,7 @@ volumes/
 *.temp
 *.old
 *.lock.tmp
+*.pid
 
 
 # ============================================================

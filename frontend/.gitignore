@@ -4,7 +4,22 @@
 .nuxt
 .nitro
 .cache
+.data
 dist
+.output-public
+
+# Package manager caches and logs
+.pnpm-store
+.npm
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+
+# TypeScript and test output
+*.tsbuildinfo
+coverage
+test-results
+playwright-report
 
 # Node dependencies
 node_modules

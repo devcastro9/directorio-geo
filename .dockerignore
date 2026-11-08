@@ -1,6 +1,33 @@
+# Repository metadata and local configuration
 .git
+.gitignore
 .env
-.env.local
+.env.*
+!.env.example
 .venv
-__pycache__/
-*.py[cod]
+
+# Dependencies and generated output
+**/node_modules
+**/.nuxt
+**/.output
+**/.nitro
+**/.cache
+**/dist
+**/bin
+**/obj
+**/artifacts
+**/publish
+**/TestResults
+**/.pnpm-store
+
+# Local files and logs
+**/*.log
+**/*.tmp
+**/*.temp
+**/*.user
+**/*.suo
+**/.vscode
+**/.vs
+**/.idea
+**/.DS_Store
+**/Thumbs.db
