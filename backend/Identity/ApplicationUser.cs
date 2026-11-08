@@ -2,9 +2,9 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace backend.Models
+namespace backend.Identity
 {
-    public class ApplicationUser: IdentityUser<Guid>
+    public class ApplicationUser : IdentityUser<Guid>
     {
         [StringLength(150)]
         public string? FirstName { get; set; }

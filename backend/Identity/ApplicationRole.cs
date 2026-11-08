@@ -2,9 +2,9 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 
-namespace backend.Models
+namespace backend.Identity
 {
-    public class ApplicationRole: IdentityRole<Guid>
+    public class ApplicationRole : IdentityRole<Guid>
     {
         [StringLength(150)]
         public string? Description { get; set; }

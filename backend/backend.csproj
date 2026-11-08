@@ -27,4 +27,8 @@
     <PackageReference Include="Scalar.AspNetCore" Version="2.19.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Identity\" />
+  </ItemGroup>
+
 </Project>
