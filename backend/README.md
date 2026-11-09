@@ -1,6 +1,6 @@
 # Backend — Directorio Geo
 
-API ASP.NET Core 10 del directorio de negocios de Bolivia. Este README describe el estado del código del backend y cómo trabajar con él. El alcance y los contratos que deben implementarse están en [REQUERIMIENTOS_API.md](../REQUERIMIENTOS_API.md); las funciones del producto, en [Funcionalidades](../Funcionalidades_Directorio_Geo_SQL_v1_3.md). Para la instalación completa, consultar el [README principal](../README.md).
+API ASP.NET Core 10 del directorio de negocios de Bolivia. Este README describe el estado del código del backend y cómo trabajar con él. El alcance y los contratos que deben implementarse están en [REQUERIMIENTOS_API.md](../REQUERIMIENTOS_API.md); las funciones del producto, en [Funcionalidades](../Funcionalidades_Directorio_Geo_SQL_v1_3.md). Para la instalación completa, consultar el [README principal](../README.md); la integración de la interfaz se documenta en el [README del frontend](../frontend/README.md).
 
 ## Estado actual
 
@@ -147,7 +147,30 @@ La política acordada para continuar es SQL incremental numerado en `db/migratio
 1. Completar autenticación y DTO propios. Alinear login por email, registro, salidas `User`/`AuthSession`, refresh y errores con el contrato; los DTO provisionales actuales no lo cumplen.
 2. Implementar la base P0: permisos Identity/JWT, sesiones revocables, CORS explícito, ProblemDetails, límites, auditoría, concurrencia y salud; aplicar las correcciones SQL necesarias.
 3. Implementar las 27 operaciones MVP del contrato: catálogo público, búsqueda JSON/GeoJSON, fichas y administración de negocios, sucursales y fotos. Unificar rutas bajo `/api/v1` y retirar `/Prueba` cuando existan las operaciones reales.
-4. Añadir pruebas de integración con PostgreSQL/PostGIS real y los criterios de aceptación del contrato. No hay proyectos de pruebas ni un resultado de pruebas vigente en este backend.
+4. Añadir pruebas de integración con PostgreSQL/PostGIS real y los criterios de aceptación del contrato. No hay proyectos de pruebas automatizadas versionados para este backend; esta actualización no ejecuta compilación ni pruebas de aplicación.
 5. Incorporar las cuatro operaciones P2 de registro/asociación de propietarios una vez estable el MVP, reutilizando las rutas de gestión con autorización por negocio.
 
 Los modelos de reseñas, favoritos, publicidad, importaciones y métricas reflejan el esquema existente; no implican funcionalidades comprometidas. Las clases vacías de `BackgroundJobs` permanecen fuera de P0/P1/P2: no agregar planificadores para completarlas sin una ampliación explícita del alcance.
+
+## Integración con Nuxt
+
+El frontend actual muestra la bienvenida y no realiza solicitudes a la API. No hay que configurar variables de API para ejecutarlo en ese estado. La URL local del backend nativo es `http://localhost:5089`; dentro de Compose el backend escucha en `http://backend:8080`, mientras que el navegador accede al puerto publicado del host. La red predeterminada permite la comunicación entre frontend y backend; el frontend no tiene acceso directo a la red interna de PostgreSQL.
+
+La integración prevista usa `/api/v1` como base pública bajo un origen HTTPS y una base privada para SSR. Esas opciones aún no están implementadas en Nuxt, y Compose no configura el proxy. Al conectar sesiones de navegador, reemplazar CORS abierto por orígenes explícitos con credenciales y mantener refresh en cookie HttpOnly; la cookie no sustituye Bearer en rutas privadas. Seguir las convenciones de JSON/GeoJSON, ETag y ProblemDetails del contrato.
+
+## Comprobaciones de desarrollo
+
+Desde la raíz del repositorio:
+
+```powershell
+dotnet build backend/backend.slnx --configuration Release
+git diff --check
+```
+
+La compilación permite identificar los bloqueos actuales; no se presenta como una validación aprobada. Las pruebas SQL existentes pueden ejecutarse contra una base de desarrollo con el esquema inicializado:
+
+```powershell
+Get-Content -LiteralPath db/init/02_test.sql -Raw -Encoding UTF8 | docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+```
+
+Usar la misma combinación de archivos Compose con que se inició el entorno. La prueba SQL termina con rollback y no sustituye pruebas HTTP de permisos, sesiones, contratos o concurrencia. Un estado saludable de PostgreSQL tampoco demuestra que `/api/v1/Prueba` pueda ejecutarse con las credenciales de la aplicación.

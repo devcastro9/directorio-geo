@@ -2,21 +2,32 @@
 
 Documentación rectificada: versión 2.0, 2026-11-09.
 
-El producto permite encontrar sucursales, consultar horarios, contactos, precios orientativos y fotos, y abrir indicaciones para llegar. El visitante no necesita cuenta ni conocimientos geográficos.
+El producto previsto permitirá encontrar sucursales, consultar horarios, contactos, precios orientativos y fotos, y abrir indicaciones para llegar. El visitante no necesita cuenta ni conocimientos geográficos.
 
 ## Documentos y alcance
 
 - [Funcionalidades](Funcionalidades_Directorio_Geo_SQL_v1_3.md): alcance, valor para el usuario, entregas y criterios de aceptación.
 - [Contrato API](REQUERIMIENTOS_API.md): fuente normativa de rutas, parámetros, DTO JSON/GeoJSON, permisos, reglas y cambios SQL necesarios.
-- Este README: estado comprobado, arquitectura, instalación y orden de implementación. [README del frontend](frontend/README.md): integración Nuxt.
+- [README del backend](backend/README.md): estructura ASP.NET Core, configuración, ejecución y bloqueos actuales.
+- [README del frontend](frontend/README.md): estructura Nuxt, comandos e integración pendiente con la API.
+- Este README: entorno compartido, base de datos, despliegue y orden de implementación.
 
-Los tres documentos usan una sola planificación: **P0**, base técnica; **P1**, MVP público administrable; **P2**, autogestión por propietarios. P0/P1 suman **27 operaciones HTTP**; P2 añade **4**, para **31** en total. Cada combinación método+ruta cuenta una vez; OpenAPI/Scalar de desarrollo no son operaciones del producto. JSON y GeoJSON son dos representaciones de una misma búsqueda.
+La documentación comparte una sola planificación: **P0**, base técnica; **P1**, MVP público administrable; **P2**, autogestión por propietarios. P0/P1 suman **27 operaciones HTTP**; P2 añade **4**, para **31** en total. Cada combinación método+ruta cuenta una vez; OpenAPI/Scalar de desarrollo no son operaciones del producto. JSON y GeoJSON son dos representaciones de una misma búsqueda.
 
 Quedan fuera del alcance comprometido favoritos, reseñas, publicidad, métricas de visitantes, importaciones masivas, autocompletado, análisis GIS y motor de rutas. Sus tablas existentes se conservan; no obligan a desarrollar interfaces o endpoints. No agregar esas funcionalidades por el solo hecho de estar en la base.
 
 ## Estado real y stack inamovible
 
-Actualmente solo existe `GET /api/v1/Prueba`, que devuelve entidades de `catalog.parameter_definition`. Nuxt muestra `NuxtWelcome`. Identity y paquetes JWT están presentes; `Program.cs` aún no configura autenticación ni autorización y permite cualquier origen CORS. El servicio de autenticación es incompleto. Las rutas de la especificación son trabajo pendiente, no una descripción de una API terminada.
+La única operación implementada en los controladores es `GET /api/v1/Prueba`, que devuelve entidades de `catalog.parameter_definition`. Nuxt muestra `NuxtWelcome`. Identity y paquetes JWT están presentes; `Program.cs` aún no configura autenticación ni autorización y permite cualquier origen CORS. El servicio de autenticación es incompleto. Las rutas de la especificación son trabajo pendiente, no una descripción de una API terminada.
+
+| Área | Disponible en el código | Pendiente |
+| --- | --- | --- |
+| Backend | Consulta de prueba, contexto EF y modelos SQL/Identity | Completar autenticación y DTO; implementar las operaciones del contrato |
+| Frontend | Bienvenida Nuxt, scripts de desarrollo y build, imagen Nitro | Buscador, mapa, fichas, formularios y consumo de API |
+| Base | Línea base SQL y pruebas transaccionales | Incrementos, datos territoriales comprobados y correcciones de integridad |
+| Operación | Compose, healthcheck DB y frontend, pgAdmin opcional | Salud de API, proxy HTTPS y entrega automatizada |
+
+El trabajo de autenticación contiene bloqueos visibles por inspección: `AuthService` no implementa `IAuthService` y faltan los tipos `UserResponse` y `AuthSession`. El [README del backend](backend/README.md) detalla también la diferencia entre los DTO provisionales y el contrato. Los comandos de arranque del backend y de construcción del conjunto requieren resolver esos bloqueos. El frontend puede desarrollarse por separado porque todavía no depende de la API.
 
 | Componente | Base del repositorio que se conserva |
 | --- | --- |
@@ -30,9 +41,9 @@ Actualmente solo existe `GET /api/v1/Prueba`, que devuelve entidades de `catalog
 
 `frontend/package.json` requiere Node `^22.22.3 || ^24.15.0 || >=26.0.0`. Las versiones efectivas de frontend las fija `pnpm-lock.yaml`. No sustituir frameworks, base, almacenamiento de fotos ni mecanismo de autenticación. pgRouting, osm2pgrouting y osmium-tool están instalados en `db/Dockerfile`; se conservan como parte de la imagen actual, sin desarrollar un motor de rutas. pgAdmin es opcional.
 
-## Arquitectura objetivo
+## Estructura actual y arquitectura acordada
 
-Un monolito modular ASP.NET Core, un frontend Nuxt y una base PostgreSQL. Un único `AppDbContext` con Identity; SQL versionado como fuente de verdad. No hacen falta microservicios, CQRS, event bus, Redis ni un Repository por tabla.
+Un monolito modular ASP.NET Core, un frontend Nuxt y una base PostgreSQL. Un único `AppDbContext` con Identity; SQL versionado como fuente de verdad. La estructura existente relevante es:
 
 ```text
 directorio-geo/
@@ -43,42 +54,50 @@ directorio-geo/
   docker-compose.dev.yml
   .env.example
   backend/
-    Program.cs                   # configurar auth, errores, límites y salud
-    Controllers/                 # Public, Auth, Management y Admin
-    DTOs/                        # contratos; nunca entidades EF como respuesta
-    Services/                    # Search, Business, Photo, Auth y Ownership
-    Data/AppDbContext.cs         # existente; regeneración controlada
-    Data/AppDbContext.Extensions.cs # configuración partial futura
-    Identity/                    # usuarios/roles existentes, policies futuras
-    Models/                      # entidades Database First existentes
-    tests/                       # futuro proyecto de integración independiente
+    README.md
+    backend.csproj
+    backend.slnx
+    Program.cs
+    Controllers/                 # Prueba y controladores sin acciones
+    DTOs/                        # Contratos provisionales
+    Services/                    # Autenticación incompleta
+    Data/AppDbContext.cs
+    Data/Migrations/IdentityMigration.sql
+    Identity/
+    Models/
+    Middleware/                  # Clase de errores vacía
+    BackgroundJobs/              # Clases vacías, fuera del alcance comprometido
+    Dockerfile
   frontend/
+    README.md
+    package.json
+    pnpm-lock.yaml
     nuxt.config.ts
-    app/
-      app.vue                    # sustituir NuxtWelcome
-      pages/                     # buscar, ficha, login, management; register en P2
-      components/                # filtros, tarjetas, mapa y formularios
-      composables/               # API, sesión y geolocalización
-      middleware/                # navegación protegida
-      types/                     # tipos del contrato API
+    app/app.vue                  # NuxtWelcome y NuxtRouteAnnouncer
+    public/
+    Dockerfile
   db/
-    init/01_schema.sql           # línea base, incluye Identity
-    init/02_test.sql             # pruebas SQL con ROLLBACK
-    migrations/                 # futuros incrementos SQL numerados
+    Dockerfile
+    init/01_schema.sql
+    init/02_test.sql
 ```
 
-Los comentarios indican trabajo objetivo; las carpetas nuevas no están implementadas. El contexto Docker del backend es `backend/`: mantener allí el proyecto futuro de pruebas y excluir sus fuentes del proyecto web antes de agregarlo a la solución. Los controladores validan HTTP; servicios aplican permisos/transacciones; consultas proyectan DTO y usan PostGIS. El frontend adapta los términos técnicos a «Cerca de mí», «Buscar en esta zona» y «Abierto ahora».
+Las carpetas de pruebas, `db/migrations/`, los módulos completos de API y las páginas/composables/componentes del frontend son trabajo futuro. El contrato API define la organización y el comportamiento a implementar; no hace falta crear carpetas vacías. Los controladores resuelven HTTP, los servicios aplican permisos/transacciones y las consultas proyectan DTO usando PostGIS. No se necesita un Repository por tabla ni servicios distribuidos.
 
-Producción objetivo: un origen HTTPS con `/api/v1/*` dirigido al backend y el resto a Nuxt mediante el proxy de infraestructura. Nuxt usa `runtimeConfig.public.apiBase=/api/v1`; para consultas SSR usa una base privada configurable, accesible desde su red. Compose aún no incorpora ese proxy ni runtimeConfig. En desarrollo se permiten explícitamente los orígenes locales configurados, con credenciales; no combinar credenciales con `AllowAnyOrigin`.
+El contexto Docker del backend es `backend/`. Si se incorpora el proyecto de pruebas dentro de esa carpeta, excluir sus fuentes del proyecto web y agregarlo explícitamente a la solución. La interfaz traducirá los filtros técnicos a «Cerca de mí», «Buscar en esta zona» y «Abierto ahora».
+
+Producción objetivo: un origen HTTPS con `/api/v1/*` dirigido al backend y el resto a Nuxt mediante el proxy de infraestructura. Nuxt deberá declarar `runtimeConfig.public.apiBase=/api/v1` y una base privada configurable para consultas SSR, accesible desde su red. Compose aún no incorpora ese proxy ni runtimeConfig. En desarrollo se permiten explícitamente los orígenes locales configurados, con credenciales; no combinar credenciales con `AllowAnyOrigin`.
 
 Mapa objetivo: componente Vue exclusivo de navegador con Leaflet, sin sustituir Nuxt. URL de teselas y atribución son configuración pública; no se incluye un servicio de teselas propio. El entorno de entrega debe proporcionar un proveedor autorizado con su atribución antes de habilitar el mapa. La lista sigue funcionando si las teselas fallan.
 
 ## Instalación con Docker
 
-Requisitos: Docker con contenedores Linux y Compose v2. Desde la raíz, copiar la plantilla solo si no existe `.env`:
+Todos los comandos de este README parten de la raíz del repositorio. Requisitos: Docker con contenedores Linux y Compose v2. Desde la raíz, copiar la plantilla solo si no existe `.env`:
 
 ```powershell
-Copy-Item .env.example .env
+if (-not (Test-Path -LiteralPath .env)) {
+    Copy-Item -LiteralPath .env.example -Destination .env
+}
 ```
 
 Completar los valores privados localmente. No sobrescribir un `.env` existente ni versionarlo.
@@ -146,7 +165,7 @@ pnpm --dir frontend install --frozen-lockfile
 pnpm --dir frontend dev
 ```
 
-Las claves `Jwt:Issuer`, `Jwt:Audience`, `Jwt:AccessTokenMinutes=15` y `Jwt:RefreshTokenDays=30` existen en appsettings pero aún no se consumen. La implementación debe añadir `Jwt:SigningKey` mediante secretos (al menos 32 bytes aleatorios), `Security:AllowedOrigins` y las bases API de Nuxt. Las credenciales del primer administrador se suministran por un procedimiento privado de inicialización con UserManager; nunca por registro público ni con contraseña fija. Ninguna clave privada va en `NUXT_PUBLIC_*`.
+Las claves `Jwt:Issuer`, `Jwt:Audience`, `Jwt:AccessTokenMinutes=15` y `Jwt:RefreshTokenDays=30` existen en appsettings pero aún no se consumen. La implementación debe añadir `Jwt:SigningKey` mediante secretos (al menos 32 bytes aleatorios), `Security:AllowedOrigins` y las bases API de Nuxt. Las credenciales del primer administrador deberán suministrarse por un procedimiento privado de inicialización con UserManager, todavía pendiente; nunca por registro público ni con contraseña fija. Ninguna clave privada va en `NUXT_PUBLIC_*`.
 
 ## Base y migraciones
 
@@ -173,7 +192,7 @@ docker compose config --quiet
 Get-Content -Raw -Encoding UTF8 db/init/02_test.sql | docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
-Actualmente no existen pruebas .NET ni script test frontend. La compilación puede fallar durante el trabajo de autenticación en curso; no equivale a un producto validado. La implementación debe incorporar las pruebas de aceptación de los dos documentos normativos y OpenAPI con los DTO concretos, no respuestas ilustrativas sin esquema.
+Actualmente no existen pruebas .NET ni script test frontend. El backend tiene los bloqueos de código indicados en su README. Los comandos anteriores son instrucciones de comprobación, no resultados de ejecución; esta actualización documental no compila ni inicia servicios. La implementación debe incorporar las pruebas de aceptación de los dos documentos normativos y OpenAPI con los DTO concretos, no respuestas ilustrativas sin esquema.
 
 Antes de exposición pública: configurar HTTPS/proxy, cerrar CORS, desactivar logs sensibles, usar un rol DB con permisos mínimos en vez del usuario inicial, preparar backups y comprobar restauración. No hay pipeline CI/CD ni terminación TLS incorporados. pgAdmin permanece en loopback. La salud lista de la futura API no debe depender de datos de negocios ni exponerse como diagnóstico detallado.
 
