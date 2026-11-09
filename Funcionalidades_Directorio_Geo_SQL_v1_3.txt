@@ -1,155 +1,193 @@
-FUNCIONALIDADES POSIBLES DEL DIRECTORIO GEO DE NEGOCIOS
-Basadas en: Directorio_Geo_Esquema_v1_3.sql
-Fecha: 2026-11-07
+FUNCIONALIDADES DEL DIRECTORIO GEO DE NEGOCIOS
+Versión 2.0 | Fecha: 2026-11-09
+Archivo conservado por compatibilidad: Funcionalidades_Directorio_Geo_SQL_v1_3.txt
 
-OBJETIVO
-Directorio público de negocios de Bolivia diseñado para visitantes sin conocimientos
-informáticos, geográficos ni estadísticos. El mapa y los filtros deben ser fáciles
-de usar; latitud, longitud, bbox y geometrías son detalles internos de la API.
+1. OBJETIVO Y AUTORIDAD DOCUMENTAL
 
-LEYENDA
-[S] Soporte en el esquema SQL: tablas, vistas, funciones o índices relevantes.
-[P] Soporte parcial: falta lógica específica, integración o contrato adicional.
-[F] Funcionalidad futura: PostGIS permite implementarla, pero no hay módulo
-    funcional completo en el SQL proporcionado.
-IMPORTANTE: [S] NO significa que la función esté lista para el usuario; se
-requieren API, interfaz, autenticación/autorización y pruebas.
+Ayudar a una persona a encontrar un negocio en Bolivia, saber si atiende,
+consultar cómo contactarlo y cómo llegar. La unidad de búsqueda es la SUCURSAL:
+un negocio puede tener varias ubicaciones y cada una aparece individualmente.
 
-1. VISITANTE ANÓNIMO (FUNCIONES PÚBLICAS PRIORITARIAS)
-[S] Buscar sucursales por nombre o términos de búsqueda.
-    Base: app.find_branches, app.normalize, app.search_synonym.
-[S] Obtener sugerencias al escribir.
-    Base: app.autocomplete.
-[S] Filtrar por categoría, incluidas subcategorías según la lógica de consulta.
-    Base: catalog.category, app.branch_category, app.find_branches.
-[S] Buscar en un departamento, provincia, municipio, zona o barrio disponible.
-    Base: geo.territory, jerarquía territorial y filtro de territorio en búsqueda.
-[S] Mostrar sucursales cercanas y su distancia aproximada en línea directa.
-    Base: app.branch.location geography(Point,4326), PostGIS.
-[S] Buscar en un radio acotado alrededor de una ubicación elegida.
-    Base: PostGIS, app.find_branches.
-[S] Mostrar resultados en el área visible al mover el mapa.
-    Base: bbox, PostGIS, app.find_branches.
-[S] Consultar fichas de negocios y sus múltiples sucursales.
-    Base: app.business, app.branch, app.published_branch.
-[S] Ver dirección, teléfono, WhatsApp, sitio web y redes de una sucursal.
-    Base: app.branch_contact.
-[S] Consultar horarios habituales y excepciones (incluidos festivos).
-    Base: app.opening_hour, app.holiday, app.branch_hour_override,
-    app.is_open_at.
-[S] Mostrar fotos activas de sucursales.
-    Base: app.branch_photo (BYTEA en el esquema actual).
-[S] Mostrar categorías, servicios, características y medios de pago.
-    Base: catalog.*, app.branch_category, app.branch_service,
-    app.branch_feature, app.branch_payment.
-[S] Mostrar precios orientativos o servicios con precios registrados.
-    Base: app.branch y app.service_price.
-[S] Mostrar reseñas visibles y calificaciones disponibles.
-    Base: app.review, app.review_reply.
-[P] Abrir indicaciones de llegada en una aplicación externa de mapas.
-    La BD proporciona coordenadas; la navegación se integra en el frontend.
-[P] Permitir «cerca de mí» previa autorización del navegador.
-    La geolocalización se obtiene del cliente, no de PostgreSQL.
+Este documento fija alcance y aceptación. REQUERIMIENTOS_API.txt fija los
+contratos normativos. README.md describe instalación, arquitectura y estado real.
+Esta versión reemplaza las prioridades contradictorias de versiones anteriores.
+No cambia el stack ni implica que la aplicación ya esté implementada.
 
-2. USUARIO REGISTRADO (POSTERIOR AL NÚCLEO PÚBLICO)
-[S] Registrar cuentas y administrar roles mediante ASP.NET Core Identity.
-    Base: AspNetUsers, AspNetRoles y tablas relacionadas.
-[S] Guardar y consultar sucursales favoritas.
-    Base: app.favorite; en la API preferir PUT/DELETE idempotentes, no toggle.
-[S] Publicar calificaciones y reseñas; consultar sus respuestas.
-    Base: app.review, app.review_reply.
-[P] Inicio de sesión, recuperación de cuenta y cierre de sesión.
-    Requieren servicios de autenticación y mecanismos de entrega/verificación.
-[P] JWT con refresh token rotativo, revocación y control de sesiones.
-    No basta con las tablas estándar de Identity: falta cerrar persistencia
-    de familias de tokens y política de expiración.
+2. ENTREGAS ÚNICAS
 
-3. PROPIETARIO VERIFICADO
-[S] Asociar personas verificadas con uno o más negocios.
-    Base: app.owner_identity, app.business_owner.
-[S] Registrar negocio y primera sucursal en operación atómica.
-    Base: app.create_business_with_branch y restricciones de integridad.
-[S] Editar información comercial y administrar sucursales, sujeto a permisos.
-    Base: app.business, app.branch y tablas relacionadas.
-[S] Administrar fotos y seleccionar la principal.
-    Base: app.branch_photo, app.add_photo, app.set_primary_photo.
-[S] Responder reseñas según reglas del esquema.
-    Base: app.review_reply, app.reply_to_review.
-[P] Solicitar verificación con evidencia y seguimiento de estados.
-    Falta cerrar entidad/procedimiento de solicitudes, protección y retención
-    de evidencias. app.owner_identity no representa por sí sola todo el flujo.
-[P] Permisos reales por negocio.
-    La API debe comprobar asociación vigente e identidad verificada en cada
-    operación; el rol BusinessOwner por sí solo no autoriza cualquier negocio.
+P0: integridad, datos iniciales, seguridad administrativa y operación.
+P1: MVP público con catálogo administrable. P0/P1: 27 operaciones HTTP.
+P2: autogestión por propietarios. Añade 4; total acumulado: 31 operaciones.
+P2 no bloquea la primera publicación del directorio.
 
-4. ADMINISTRACIÓN
-[S] Crear, modificar, publicar, despublicar y dar baja lógica a negocios.
-    Base: app.business, app.admin_update_business, app.admin_publish_business,
-    app.soft_delete_business; transiciones de estado requieren contrato cerrado.
-[S] Crear, modificar y dar baja lógica a sucursales.
-    Base: app.branch, app.soft_delete_branch.
-[S] Administrar categorías, servicios, características y medios de pago.
-    Base: catalog.category, service, feature, payment_method.
-[S] Cargar y mantener departamentos, provincias, municipios, zonas o barrios.
-    Base: geo.territory y geo.resolve_territory.
-[S] Gestionar asociaciones de propietarios y revocaciones.
-    Base: app.owner_identity y app.business_owner.
-[S] Moderar reseñas y consultar auditoría.
-    Base: app.moderate_review, app.audit_log y funciones de auditoría.
-[S] Administrar parámetros configurables del sistema.
-    Base: catalog.parameter_definition, catalog.parameter_value.
-[P] Importar CSV/XLSX y revisar posibles duplicados.
-    Base: app.import_batch, app.import_row, app.find_import_duplicates;
-    la API/worker debe leer archivos, validar y aplicar cambios.
+No se cuentan como funcionalidades las tablas SQL sin API e interfaz. La ruta
+/Prueba y NuxtWelcome son la base actual, no el producto terminado.
 
-5. OPERACIÓN Y MONETIZACIÓN (NO NECESARIAS PARA EL MVP PÚBLICO)
-[S] Registrar visitas e interacciones medibles (no equivalen a ventas).
-    Base: app.event.
-[S] Consolidar métricas diarias y mensuales.
-    Base: app.daily_metric, app.monthly_metric y funciones de consolidación.
-[S] Archivar eventos y consultar vistas de dashboard.
-    Base: app.event_hist, app.archive_events y vistas de métricas.
-[S] Gestionar anuncios y períodos de vigencia.
-    Base: app.ad_placement, app.active_ads y app.expire_ads.
-[P] Ejecutar periódicamente consolidaciones, archivado y expiración.
-    Las funciones SQL requieren un programador/worker; no se ejecutan solas.
-[P] Garantizar políticas de privacidad y retención de datos de eventos.
-    Requiere definiciones operativas y legales adicionales.
+3. VISITANTE SIN CUENTA [P1]
 
-6. CAPACIDADES GEOESPACIALES QUE NO ES NECESARIO EXPONER AL VISITANTE
-[S] Almacenar puntos de sucursales y límites territoriales.
-[S] Asignar un territorio a una ubicación cuando existe cobertura válida.
-[S] Filtrar ubicaciones por proximidad, viewport y jerarquía territorial.
-[P] Mostrar contornos sencillos de barrios o municipios en el mapa.
-    Requiere endpoint/GeoJSON simplificado y control de tamaños.
-[F] Dibujar polígonos personalizados para buscar dentro de ellos.
-[F] Mapas de calor, densidad por km², mapas temáticos y comparación de zonas.
-[F] Superposiciones y análisis de cobertura comercial.
-    PostGIS dispone de operaciones geométricas, pero estos módulos no están
-    especificados ni son necesarios para encontrar negocios.
+F01. Buscar por nombre de negocio o sucursal, sin distinguir tildes/mayúsculas.
+Valor: encontrar un establecimiento sin conocer su nombre exacto.
+Aceptación: resultados por sucursal; filtros combinados con AND; orden estable;
+búsqueda vacía muestra catálogo publicado, paginado; cero resultados ofrece
+limpiar filtros, no sustituye la búsqueda por recomendaciones ocultas.
 
-7. PRIORIDAD DE DESARROLLO PROPUESTA (SIN SOBREINGENIERÍA)
-P0. Integridad de datos, publicación segura, permisos administrativos,
-    validaciones espaciales y errores coherentes.
-P1. Buscador público, categorías, territorios, resultados cercanos, mapa,
-    fichas, contactos, horarios, imágenes y administración mínima del catálogo.
-P2. Usuarios registrados, propietarios, favoritos, reseñas y moderación,
-    una vez cerradas políticas de sesiones y verificación.
-P3. Importaciones ampliadas, publicidad y métricas, si se requieren.
-NO PRIORIZAR. Mapas de calor, herramientas estadísticas, comparación de zonas,
-    polígonos dibujados por visitantes, motor de rutas propio ni microservicios.
+F02. Filtrar por categoría y ubicación administrativa disponible.
+Valor: encontrar el tipo de negocio en el lugar deseado.
+Aceptación: categorías y territorios incluyen descendientes activos. La jerarquía
+es departamento > provincia > municipio > zona opcional > barrio opcional.
+No inventar barrios ni exigir esos niveles cuando no estén disponibles.
 
-8. PENDIENTES TÉCNICOS ANTES DE IMPLEMENTACIÓN COMPLETA
-- Cerrar transiciones de publicación y verificación de propietarios.
-- Definir concurrencia optimista y errores HTTP para operaciones de edición.
-- Establecer límites de búsquedas, fotos, importaciones y rate limiting.
-- Definir persistencia/rotación de refresh tokens y política de privacidad.
-- Validar SQL contra PostgreSQL 18 y PostGIS reales, con pruebas de índices,
-  restricciones, consultas y seguridad.
-- Verificar con datos reales qué barrios/zonas tienen límites confiables.
+F03. «Cerca de mí» o seleccionar un punto en el mapa.
+Valor: encontrar opciones cercanas sin introducir coordenadas.
+Aceptación: permiso explícito del navegador; si se deniega, permitir municipio
+o punto manual. Radio inicial 10 km, opciones de interfaz 1/5/10/25/50 km.
+La API trabaja en metros. Mostrar distancia en línea directa; no tiempo de viaje.
+La ubicación del visitante no se persiste ni se registra en analítica.
 
-CONCLUSIÓN
-El esquema v1.3 permite construir un directorio público amplio sin obligar al
-visitante a interpretar coordenadas o análisis GIS. La prioridad es ofrecer
-búsquedas comprensibles y fichas útiles. Las capacidades espaciales avanzadas
-pueden permanecer internas o aplazarse hasta existir una necesidad verificable.
+F04. Ver lista y mapa coherentes; «Buscar en esta zona».
+Valor: elegir según la ubicación sin una herramienta GIS compleja.
+Aceptación: una misma consulta/representación alimenta lista y marcadores;
+GeoJSON usa [longitud, latitud]. Al mover el mapa, consultar solo al pulsar
+«Buscar en esta zona», reiniciar página y sustituir el modo radio por bbox.
+Mostrar el número total y que los marcadores corresponden a la página actual.
+No ocultar un límite de resultados ni prometer que se muestran todos.
+Lista utilizable sin mapa; teselas con atribución y proveedor configurado.
+
+F05. Consultar ficha de negocio y sus sucursales.
+Valor: comparar información comercial útil y elegir una ubicación concreta.
+Aceptación: nombre, descripción, categoría, dirección, estado de atención,
+horarios, excepciones, contactos, fotos, servicios, características, medios de
+pago y precio orientativo cuando exista. Nunca inventar precios ni mostrar cero
+como sustituto de un dato ausente. No exponer NIT, razón social ni propietarios.
+La ficha pública solo incluye sucursales visibles; máximo operativo 100 por negocio.
+
+F06. «Abierto ahora» con horario local.
+Valor: evitar desplazamientos a un negocio cerrado.
+Aceptación: America/La_Paz; turnos múltiples, cruce de medianoche y excepciones
+por fecha. Festivos aplicables cierran por defecto; una excepción puede abrir.
+Una fecha declarada cerrada anula cualquier arrastre del día anterior.
+Sin información suficiente, mostrar «Horario no informado», nunca «Cerrado» por
+ausencia de datos. «Abierto ahora» solo incluye valores confirmados true.
+
+F07. Contactar y abrir indicaciones de llegada.
+Valor: llamar, escribir o llegar desde la aplicación habitual del visitante.
+Aceptación: teléfono, WhatsApp, email y enlaces comerciales válidos. Navegación
+externa mediante https://www.google.com/maps/dir/?api=1&destination=lat,lng;
+no se envía origen ni datos privados. No hay cálculo de rutas propio.
+
+4. ADMINISTRADOR [P0/P1]
+
+F08. Iniciar/cerrar sesión y mantenerla de forma segura.
+Aceptación: Identity Guid, JWT corto y refresh rotativo; usuario desactivado o
+sesión revocada pierde acceso; sin credenciales administrativas predeterminadas.
+No se abre registro público en el MVP. El operador crea/restablece cuentas por
+un procedimiento privado que usa Identity, no edición de hashes en SQL.
+
+F09. Crear y editar un negocio junto con su primera sucursal.
+Valor: alimentar y corregir un catálogo real sin intervención del desarrollador.
+Aceptación: alta atómica en draft, formularios completos y validaciones claras.
+Slug estable automático. Las colecciones de contactos/horarios/servicios se
+editan dentro de la ficha, sin pantallas CRUD independientes por tabla.
+El punto debe cubrirse por un municipio válido y verificarse dentro de Bolivia.
+
+F10. Publicar, retirar y dar baja/restaurar.
+Valor: evitar fichas incompletas y retirar información obsoleta.
+Aceptación: publicación solo administrativa, con datos mínimos definidos en API;
+retirar equivale a draft; baja lógica a archived. Restauración de negocio exige
+seleccionar explícitamente las sucursales que se recuperarán y vuelve a draft.
+No se recuperan accidentalmente sucursales eliminadas antes. Una sucursal también
+puede restaurarse individualmente con su negocio vigente. No eliminar la última
+sucursal de un negocio vigente. Un negocio cerrado temporalmente sigue visible,
+con aviso; cerrado permanentemente deja de ser visible.
+
+F11. Administrar sucursales y fotos.
+Valor: mantener actualizados lugares, horarios e imágenes que orientan al cliente.
+Aceptación: ubicación con mapa, sucursal principal única y foto principal única;
+JPEG/PNG/WebP hasta 5 MiB y máximo 20 fotos por sucursal; sin base64 en JSON;
+lectura BYTEA mediante API. Previsualización privada de borradores para autorizados.
+Las operaciones simultáneas no deben sobrescribirse silenciosamente.
+
+F12. Consultar trazabilidad de cambios.
+Valor: identificar correcciones y recuperar la confianza en el catálogo.
+Aceptación: actor, fecha, entidad y operación; acceso Admin. No copiar fotos,
+contraseñas, tokens ni datos privados al listado de auditoría. Catálogos,
+territorios y festivos iniciales se mantienen mediante scripts versionados:
+no hay un panel genérico de parámetros ni una herramienta de edición GIS.
+
+5. PROPIETARIO [P2, CONTRATOS CERRADOS EN DOCUMENTO API]
+
+F13. Registrarse y ser asociado por un administrador.
+Valor: permitir que quien atiende el negocio mantenga su información.
+Aceptación: registro crea solo User. El administrador verifica por contacto
+comercial y asigna el usuario por email a un negocio concreto; registra método,
+actor y fecha, sin subir documentos de identidad. No hay solicitudes automáticas,
+reclamos de titularidad, evidencias sensibles ni un rol Moderator.
+Una identidad verificada no otorga acceso a otros negocios. Revocación inmediata.
+
+F14. Mantener únicamente los negocios asociados.
+Aceptación: mismas rutas management que Admin, filtradas/autorizadas por negocio.
+Puede editar información, contactos, horarios, fotos y sucursales; no publicar,
+restaurar ni dar baja al negocio. Puede crear un negocio en draft solo si tiene
+identidad vigente; se asocia al creador en la misma transacción y Admin publica.
+Al editar una ficha publicada se actualiza directamente con auditoría; no se
+construye un sistema de versiones/editorial. El propietario no puede editar
+razón social/NIT, cambiar asociaciones ni otorgarse permisos.
+
+6. RECORTE DE ALCANCE
+
+No comprometidas: favoritos y reseñas (requieren comunidad y moderación),
+autocompletado (la búsqueda y filtros cubren el flujo inicial), importaciones
+CSV/XLSX (sin volumen acreditado), anuncios/pagos y analítica de visitantes.
+Tampoco: mapas de calor, comparación estadística de zonas, polígonos dibujados,
+contornos territoriales públicos, productos/promociones, rutas propias,
+notificaciones, microservicios o un dashboard de indicadores sin decisiones útiles.
+
+Se conservan las tablas y herramientas SQL existentes. No se crean endpoints,
+workers ni interfaces para ellas en P0/P1/P2. No se generan eventos con IP o
+user-agent de visitantes. Una ampliación requiere necesidad concreta del cliente
+y un contrato nuevo; no es una tarea pendiente de esta entrega.
+
+7. SOPORTE SQL REAL Y BRECHAS A IMPLEMENTAR
+
+- app.find_branches YA recibe p_territory_id; no falta ese parámetro.
+  Su orden patrocinado y proyección de reseñas no son el contrato del producto:
+  implementar consulta adaptada y un conteo con idénticos filtros.
+- Usuarios/actores del dominio usan UUID; no hay migración general TEXT a UUID.
+- geo.territory.boundary es geography(MultiPolygon,4326); puede ser NULL.
+  app.branch.location es geography(Point,4326), obligatorio.
+- SQL limita sucursales a una caja aproximada de Bolivia; no certifica fronteras.
+  Antes de publicación deben existir municipios con límites válidos y procedencia.
+- app.create_business_with_branch publica directamente; NO usar sin adaptar al
+  alta draft establecida. No autoriza por sí sola operaciones HTTP.
+- Las restricciones diferidas de sucursal mínima existen; serializar cambios
+  por negocio también es necesario para altas/bajas concurrentes.
+- Los índices únicos de sucursal/foto principal están COMENTADOS: no son garantías
+  existentes. Limpiar conflictos y habilitarlos mediante incremento SQL.
+- app.is_open_at requiere corrección para fechas cerradas que anulen arrastres;
+  el DTO necesita distinguir horario desconocido de false.
+- No existen persistencia de refresh tokens ni revisión del agregado para ETag.
+  Se añaden hours_known para distinguir horario desconocido de cerrado y active
+  en excepciones para reemplazar calendarios sin borrar físicamente históricos.
+- owner_identity y business_owner existen; no se agrega tabla de solicitudes.
+- Identity ya forma parte de 01_schema.sql. No duplicar su creación con el script
+  IdentityMigration.sql ni ejecutar migraciones EF automáticas sobre el dominio.
+
+REQUERIMIENTOS_API.txt, sección 12, define cambios y orden de implementación.
+Estas brechas son tareas técnicas necesarias; esta revisión solo modifica documentos.
+
+8. ACEPTACIÓN DE ENTREGA
+
+P0: base reproducible, incrementos controlados, catálogos/territorios comprobados,
+cuenta Admin segura, permisos, sesiones, concurrencia, errores y auditoría.
+P1: recorrido completo crear > completar sucursal > fotos > publicar > buscar
+por texto/radio/bbox > ficha > contacto > baja > desaparición pública > restaurar
+como draft > republicar. Lista y mapa con mismos IDs/filtros/orden/paginación.
+P2: registrar > verificar/asociar > editar negocio propio > denegar otro negocio
+> revocar > denegar inmediatamente al anterior propietario.
+
+Pruebas obligatorias con PostgreSQL/PostGIS real: límite de radio, orden de
+coordenadas, fronteras, descendientes, turnos nocturnos/festivos, atomicidad,
+última sucursal concurrente, principales únicos, refresh reutilizado, baja de
+usuario, ETag obsoleto y ausencia de información privada en respuestas públicas.
+Interfaz: móvil, teclado, errores junto al campo, estados de carga/vacío/error,
+permiso de ubicación denegado y mapa/teselas no disponibles.

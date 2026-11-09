@@ -1,1989 +1,747 @@
-REQUERIMIENTOS FUNCIONALES Y API
-DIRECTORIO GEO DE NEGOCIOS
-========================================
+CONTRATO FUNCIONAL Y HTTP — DIRECTORIO GEO DE NEGOCIOS
+Versión 2.0 | Fecha: 2026-11-09 | Base: /api/v1
+Estado: especificación normativa para desarrollar; NO API implementada.
 
-Version: 1.2 - revision tecnica, priorizacion MVP y contratos request/response
-Fecha: 2026-11-05
-Base API: /api/v1
-Estado: Propuesta revisada; contratos de ejemplo sujetos a validacion de esquema SQL y pruebas de integracion.
+0. AUTORIDAD, ALCANCE Y STACK
 
-0. ALCANCE, TECNOLOGIAS Y PRIORIDADES
-====================================
+Reemplaza íntegramente los contratos anteriores. Define entradas, salidas,
+permisos y reglas. Funcionalidades_Directorio_Geo_SQL_v1_3.txt establece el valor
+y aceptación; README.md describe instalación y estado actual. Los ejemplos son
+instancias de los tipos definidos, no contratos alternos.
 
-Objetivo: permitir descubrir sucursales de negocios ubicadas en Bolivia, consultar
-informacion verificable y administrar el catalogo desde una interfaz interna.
+Stack inamovible: ASP.NET Core 10/C#, Identity Guid/JWT Bearer, EF Core 10,
+Npgsql/NetTopologySuite, PostgreSQL 18/PostGIS, Database First; Nuxt 4/Vue 3/
+TypeScript, pnpm y Docker Compose. Fotos BYTEA en PostgreSQL. Sin motor de rutas,
+almacenamiento externo obligatorio, microservicios, colas ni caché distribuida.
 
-Stack decidido:
-- Frontend: Nuxt + Vue 3 + TypeScript.
-- Backend: ASP.NET Core 10 Web API, C# y JWT Bearer.
-- Autenticacion y roles: ASP.NET Core Identity con claves Guid.
-- Acceso a datos: Entity Framework Core 10 / Npgsql / NetTopologySuite.
-- Base de datos: PostgreSQL 18 + PostGIS; esquema existente Database First.
-- Esquemas de dominio: app, catalog y geo; conservar public.
-- Datos espaciales: app.branch.location geography(Point,4326); limites
-  territoriales sujetos al tipo real de geo.territory.boundary.
-- Fotos: app.branch_photo.photo_data BYTEA, no almacenamiento externo obligatorio.
-- Una cuenta PostgreSQL para la API; la autorizacion debe hacerse en el backend.
+P0 = seguridad, integridad y operación. P1 = catálogo público y administración.
+P0/P1 = MVP: 27 operaciones. P2 = registro y propietarios: 4 adicionales, 31 total.
+P2 reutiliza rutas management; no duplica rutas para owner y admin.
+Fuera de P0/P1/P2: reseñas, favoritos, anuncios/pagos, eventos/estadísticas,
+autocompletado, importaciones masivas, CRUD genérico de catálogos/parámetros,
+contornos territoriales y GIS avanzado. Sus tablas no se eliminan. No hay
+endpoints, workers ni contratos parciales para esos módulos.
 
-Etiquetas:
-- P0 = bloqueante: seguridad, integridad, infraestructura y datos minimos.
-- P1 = indispensable para publicar el MVP del directorio.
-- P2 = complementario: incorporar tras estabilizar P0/P1.
-- P3 = fuera del MVP: planificar, no implementar inicialmente.
+1. INVENTARIO CANÓNICO — 27 OPERACIONES MVP + 4 P2
 
-Criterio general de salida del MVP:
-- Existen catalogos y territorios cargados y negocios reales publicables.
-- El visitante busca y consulta sucursales en un mapa sin autenticarse.
-- El administrador puede crear, corregir, publicar y dar de baja negocios.
-- Usuarios pueden registrarse; propietarios verificados administran solo sus negocios.
-- La API respeta las restricciones SQL y no expone datos privados.
-- Pruebas automatizadas de seguridad, integridad y consultas espaciales aprobadas.
+Todas las rutas usan el prefijo /api/v1, INCLUIDAS las rutas health.
+P=pública; A=Admin; M=Admin o propietario asociado vigente en P2.
+En P1 toda M exige Admin. Id de ruta UUID salvo slug, que es texto.
+Por defecto éxito 200; 201/204 se indican. Entradas/salidas tipadas en §2..11.
 
-1. HALLAZGOS Y CORRECCIONES DEL DOCUMENTO V1.0 (ORDEN CRITICO)
-=============================================================
+ ID Método Ruta relativa                                  Acceso Entrada -> salida
+ 01 GET    /catalogs                                      P      ninguna -> Catalogs
+ 02 GET    /territories                                   P      query §4 -> Page<Territory>
+ 03 GET    /branches                                      P      query §5 -> Page<BranchSummary>/GeoJSON
+ 04 GET    /businesses/{slug}                              P      slug -> PublicBusiness
+ 05 GET    /branches/{branchId}                            P      UUID -> PublicBranch
+ 06 GET    /photos/{photoId}                               P/M    UUID -> binario §9
+ 07 POST   /auth/login                                    P      LoginInput -> AuthSession
+ 08 POST   /auth/refresh                                  P      cookie, sin body -> AuthSession
+ 09 POST   /auth/logout                                   P      cookie, sin body -> 204
+ 10 GET    /auth/me                                       sesión ninguna -> User
+ 11 GET    /management/businesses                         M      query §7 -> Page<ManagedSummary>
+ 12 POST   /management/businesses                         M      CreateBusiness -> ManagedBusiness, 201
+ 13 GET    /management/businesses/{businessId}             M      UUID -> ManagedBusiness
+ 14 PUT    /management/businesses/{businessId}             M      BusinessInput -> ManagedBusiness
+ 15 PUT    /management/businesses/{businessId}/publication A      PublicationInput -> ManagedBusiness
+ 16 DELETE /management/businesses/{businessId}             A      sin body -> 204
+ 17 POST   /management/businesses/{businessId}/restore     A      RestoreInput -> ManagedBusiness
+ 18 POST   /management/businesses/{businessId}/branches    M      BranchInput -> ManagedBusiness, 201
+ 19 PUT    /management/branches/{branchId}                 M      BranchInput -> ManagedBusiness
+ 20 DELETE /management/branches/{branchId}                 M      sin body -> 204
+ 21 POST   /management/branches/{branchId}/restore         A      sin body -> ManagedBusiness
+ 22 POST   /management/branches/{branchId}/photos          M      multipart §9 -> ManagedBusiness, 201
+ 23 PUT    /management/photos/{photoId}                    M      PhotoInput -> ManagedBusiness
+ 24 DELETE /management/photos/{photoId}                    M      sin body -> 204
+ 25 GET    /admin/audit-logs                               A      query §10 -> Page<AuditEntry>
+ 26 GET    /health                                         P      ninguna -> Health
+ 27 GET    /health/ready                                   P      ninguna -> Health, 200/503
+ 28 POST   /auth/register                                  P/P2   RegisterInput -> User, 201
+ 29 GET    /admin/businesses/{businessId}/owners           A/P2   ninguna -> OwnerList
+ 30 PUT    /admin/businesses/{businessId}/owners           A/P2   OwnerInput -> Owner
+ 31 DELETE /admin/businesses/{businessId}/owners/{userId}  A/P2   sin body -> 204
 
-H-01 [CRITICO] Reseñas: se define pending/rejected y unicidad usuario-sucursal.
-Correccion: moderacion POSTERIOR; altas inicialmente visible; estados SQL
-visible/flagged/hidden; multiples reseñas por usuario y sucursal. No agregar
-pending/rejected a la API sin migracion explicita y decision funcional nueva.
-
-H-02 [CRITICO] Propietarios: registro siempre retorna pending.
-Correccion: publicacion automatica SOLO para propietario previamente verificado
-y autorizado sobre el negocio que crea. Una identidad no verificada no puede
-usar el procedimiento de publicacion inmediata; su flujo requiere revision.
-
-H-03 [CRITICO] Identificadores: ejemplos user-123, review-123 y business-123.
-Correccion: ID de Identity = Guid/UUID; IDs de entidades = UUID. La base actual
-conserva algunas referencias a usuarios como TEXT: resolver mapeo de formato o
-migrar columnas antes de añadir FK. No inferir una FK inexistente.
-
-H-04 [CRITICO] Una sucursal por negocio en respuesta de busqueda.
-Correccion: un negocio puede tener N sucursales. La busqueda espacial retorna
-SUCURSALES (unidad georreferenciada); el detalle de negocio retorna N sucursales.
-
-H-05 [CRITICO] Fotos: ejemplos presuponen CDN como origen.
-Correccion: exponer endpoint de lectura de fotos desde BYTEA y URLs relativas
-de la API en los DTO; cache HTTP y restricciones de tamaño/formato. Solo
-administrador o propietario asociado y verificado puede gestionarlas.
-
-H-06 [CRITICO] Autorizacion insuficiente: rol BusinessOwner no implica dominio
-sobre todos los negocios. Validar en cada operacion business_owner y
-owner_identity (vigencia, revocacion y asociacion). No confiar en p_is_admin,
-userId, role o businessId enviados por el cliente para otorgar permisos.
-
-H-07 [CRITICO] Sesiones JWT incompletas: refreshToken sin rotacion, revocacion,
-caducidad ni almacenamiento definido. Implementar refresh token opaco, guardado
-como HASH, rotacion, deteccion de reutilizacion y cierre de sesion; validar
-firma, issuer, audience, lifetime y estado del usuario en acciones sensibles.
-
-H-08 [ALTO] Faltan funciones administrativas imprescindibles: alta, modificacion,
-baja logica, restauracion, gestion de propietarios, imagenes e importaciones.
-El orden v1.0 deja administracion al final; esto impide alimentar el catalogo.
-
-H-09 [ALTO] La API no contempla bbox (viewport) ni autocompletado, aunque el
-proyecto pretende busqueda geografica en el mapa y sinonimos en español.
-
-H-10 [ALTO] La busqueda permite category como ID o codigo sin contrato unico.
-Definir categoryId UUID como parametro canonico; buscar por codigo mediante
-catalogo o endpoint especifico. No admitir dos formatos en un mismo parametro.
-
-H-11 [ALTO] No se documenta atomicidad de crear negocio y primera sucursal.
-Usar transaccion; cualquier negocio NO eliminado debe conservar al menos una
-sucursal NO eliminada al COMMIT (trigger diferido en DB). Probar concurrencia.
-
-H-12 [ALTO] Solo se validan coordenadas globales (-90/90, -180/180).
-Para altas, verificar ademas que el punto corresponda efectivamente a Bolivia
-con territorios oficiales cargados; una caja delimitadora no basta. Si no se
-cargaron limites confiables, marcar ubicacion para revision, no fingir certeza.
-
-H-13 [ALTO] Se exponen legalName y otros datos de registro en DTO publico.
-Limitar campos publicos; separar DTO publico, propietario y administrador.
-
-H-14 [ALTO] No se definen limites de entrada ni carga de fotos, ni proteccion
-contra abuso en autenticacion, reseñas y consultas costosas. Agregar validacion,
-rate limiting, limites de payload y controles de concurrencia.
-
-H-15 [ALTO] Fuente DB SQL preexistente + EF Core Database First.
-Evitar EnsureCreated/Migrate automatico sobre app/catalog/geo; controlar
-scripts PostGIS, funciones, triggers, restricciones EXCLUDE e indices de
-expresion fuera del scaffold. Identity puede tener migraciones separadas.
-
-H-16 [MEDIO] Favoritos usan un ID sintetico (favorite-123) aunque la PK real
-es compuesta (user_id, branch_id). El contrato debe identificar branchId.
-
-H-17 [MEDIO] La jerarquia y tipos de territorio deben respetar
-Departamento > Provincia > Municipio > Zona/Barrio. No asumir que un poligono
-municipal ofrece automaticamente barrios; permitir ausencia del nivel inferior.
-
-H-18 [MEDIO] Ejemplo de API de frontend usa .tsx y router manual, estilo React.
-Nuxt utiliza pages/, layouts/*.vue, composables/ y middleware/; no necesita
-router personalizado para el flujo habitual.
-
-H-19 [MEDIO] El dashboard no distingue visitas, impresiones, clics y
-conversiones. Definir semantica de cada evento y ventana temporal, evitando
-contabilizar dos veces al consolidar event y event_hist.
-
-H-20 [MEDIO] El script previo incluye indices de expresion y restricciones
-no recuperables con Scaffold: versionar SQL y comprobar su existencia.
+No se cuentan OpenAPI/Scalar de desarrollo ni /Prueba, que se retira. Dos formatos
+de búsqueda no son dos operaciones. P1 no registra las rutas 28..31 (404).
 
 2. CONVENCIONES TRANSVERSALES [P0]
-=================================
 
-- API base: /api/v1; JSON camelCase; fechas ISO 8601 UTC.
-- Identificadores: UUID; claves de usuarios Guid de Identity.
-- Content-Type application/json, excepto upload multipart/form-data y
-  lectura de imagenes con image/jpeg, image/png o image/webp.
-- Autenticacion: Authorization: Bearer {accessToken}.
-- DTOs para entrada/salida: no serializar entidades de EF Core directamente.
-- Errores: RFC Problem Details, application/problem+json, traceId, mensajes
-  consistentes; no enviar stack traces ni informacion interna al cliente.
-- Paginacion: page >= 1; pageSize 1..100; predeterminado 20.
-- Orden estable y determinista; limitar offset elevado; considerar cursores
-  despues del MVP si hay coste excesivo.
-- Para recursos inexistentes/no autorizados de otro propietario, preferir 404
-  para no revelar su existencia cuando corresponda.
-- Validar formatos, longitudes, tamanos, enums y parametros espaciales.
-- Usar CancellationToken; AsNoTracking() en lecturas; consultas proyectadas.
-- Aplicar filtros de publicacion y baja logica en TODAS las consultas publicas.
-- Registrar auditoria de cambios sin duplicar PHOTO_DATA en registros de audit.
-- CORS restringido a los dominios del frontend, HTTPS y secretos fuera de Git.
-- No confiar en JWT como unico mecanismo de baja inmediata de usuarios: definir
-  politica de validacion de IsActive, revocacion de sesion y permisos sensibles.
+2.1 Tipos, formato y validación
+JSON camelCase UTF-8, application/json salvo GeoJSON/errores/fotos.
+UUID=string canónica minúscula 8-4-4-4-12 distinta de cero; Guid Identity.
+Date=YYYY-MM-DD; Instant=ISO 8601 UTC con Z; Time=HH:mm local 00:00..23:59.
+Zona única America/La_Paz. Texto plano Unicode, trim, sin HTML/control, longitud
+en caracteres Unicode. No interpretar texto como markup. Password nunca trim.
+Números finitos; JSON no convierte strings a números/bools. Money=número decimal
+BOB 0..999999999999.99, hasta dos decimales; C# decimal/PostgreSQL numeric.
+T? permite null; T[] es array; propiedades obligatorias salvo indicación expresa.
+Salidas siempre incluyen null y []; excepción: privateData existe solo para Admin.
+Arrays sin repetidos por ID/tipo/fecha según contrato. Campo desconocido, JSON
+con claves duplicadas, enum o query desconocidos ->400. Campos requeridos omitidos
+->400. PUT reemplaza campos editables/colecciones; no IDs, padre, slug, auditoría
+ni publicación. No hay PATCH/JSON Patch. GET/DELETE sin body; POST sin body exige
+longitud cero, no {}. UUID mal formado ->400; válido inexistente de ruta ->404.
+Referencia inactiva/inexistente en query/body ->400, con error de campo.
+JSON máximo 1 MiB; multipart 6 MiB, archivo 5 MiB; exceso ->413.
 
-Ejemplo de error HTTP 400:
+2.2 Paginación
+Pagination={page:int,pageSize:int,totalItems:int,totalPages:int}.
+Page<T>={items:T[],pagination:Pagination}.
+page predeterminado 1, >=1; pageSize predeterminado 20, 1..100.
+offset=(page-1)*pageSize máximo 2000; exceso ->400. totalPages=ceil(total/pageSize),
+0 si total=0. Página posterior al final dentro del límite ->200 items vacío.
+Contar recursos distintos, no joins multiplicados. Conteo y página en la misma
+instantánea REPEATABLE READ de lectura; páginas solicitadas por separado pueden
+cambiar con nuevas publicaciones. Listas no paginadas tienen límites explícitos.
+
+2.3 Concurrencia, cabeceras y auditoría
+Agregado business con sucursales/fotos/asociaciones. Añadir revision BIGINT >=1
+DEFAULT 1. Cada mutación bloquea business SELECT FOR UPDATE, comprueba permiso
+y revisión bajo bloqueo, aplica todo y aumenta revision una vez por cambio
+efectivo y actualiza business.updated_at, también por cambios en hijos. No incrementar
+en reintento sin efecto. Mantenimiento SQL sigue regla.
+Mutaciones autorizadas bloquean usuario antes de business, siempre en ese orden;
+revocar/desactivar usuario usa el mismo bloqueo para evitar carreras.
+
+GET13 y todas las respuestas ManagedBusiness incluyen ETag fuerte
+"business:{uuid}:v{revision}" y Cache-Control:no-store. revision en JSON es string
+decimal para JavaScript. No usar updatedAt como versión.
+If-Match obligatorio en IDs 14..24 y 30..31: usa ETag del negocio padre también
+para sucursal/foto/propietario. Falta ->428; formato inválido, wildcard o varios
+ETags ->400; obsoleto ->412. No reintentar sobrescritura automáticamente.
+GET29 y PUT30 incluyen ETag del negocio. Respuestas 204 incluyen ETag resultante sin body.
+Alta12 no requiere If-Match. No enviar actor/role/verified/isAdmin/revision en body.
+201 de 12/18/22 incluye Location de GET13 y ManagedBusiness completo. Para identificar
+la sucursal/foto creada se añade cabecera X-Created-Resource-Id: UUID del recurso
+nuevo (también en 12, UUID del negocio). Exponer esa cabecera y ETag por CORS.
+201 registro no inicia sesión; omitir Location porque no hay GET público del usuario.
+
+Actor derivado de JWT, nunca request. La clave transaccional definitiva es
+bolivianegocios.actor_id, usada por app.actor() de la línea base; set_config con true
+para no filtrar identidad al reutilizar conexión. Auditoría dentro de transacción,
+incluidos contactos/horas/relaciones. Excluir tokens/hashes/BYTEA de snapshots/logs.
+No generar eventos ni persistir ubicación del visitante.
+
+2.4 Errores y visibilidad
+RFC 9457, application/problem+json, tipo uniforme:
+{type:"about:blank",title:string,status:int,code:string,detail:string,
+ traceId:string,errors:Record<string,string[]>}.
+errors={} salvo validación; mensajes españoles sin SQL ni stack.
+```json
 {
-  "type": "https://api.ejemplo.bo/problems/validation",
-  "title": "Datos invalidos",
+  "type": "about:blank",
+  "title": "Datos inválidos",
   "status": 400,
-  "traceId": "00-...",
-  "errors": {"rating": ["Debe estar entre 1 y 5"]}
+  "code": "validation",
+  "detail": "Corrige los campos indicados.",
+  "traceId": "00-e64702616a304882abc6a29852b0f013-44ed91db827af094-01",
+  "errors": {"radiusM": ["Debe estar entre 1 y 50000."]}
 }
+```
+HTTP/code: 400 validation; 401 unauthorized (WWW-Authenticate:Bearer);
+403 forbidden; 404 not_found; 406 not_acceptable; 409 conflict;
+412 stale_version; 413 payload_too_large; 415 unsupported_media_type;
+428 precondition_required; 429 rate_limited con Retry-After segundos;
+500 internal_error; 503 unavailable. 409 detalla última sucursal, unicidad,
+límite operativo o transición incompatible. Publicación incompleta ->400 por campo.
+401: token ausente/inválido/revocado, usuario inactivo/bloqueado. 403 cuenta válida
+sin rol. M con rol y recurso ajeno ->404. No publicado/eliminado/cerrado permanente
+->404 público, incluidas fotos; preview autenticado §9.
+Público JSON/GeoJSON/fotos: Cache-Control:no-store. Sin OutputCache en MVP.
+Retirar afecta nuevas consultas, no borra copias vistas antes por el visitante.
+Todas las salidas privadas/auth usan no-store. Servir solo por HTTPS en producción.
 
-Respuesta paginada de ejemplo:
-{
-  "items": [],
-  "pagination": {"page": 1, "pageSize": 20, "totalItems": 0, "totalPages": 0}
-}
+3. AUTENTICACIÓN [P0, REGISTRO P2]
 
-3. FASE 0 - BASE TECNICA Y CARGA INICIAL [P0]
-=============================================
+User={id:UUID,email:string,firstName:string,lastName:string,roles:string[]}.
+Roles exactos Admin, BusinessOwner, User; orden alfabético. No Moderator.
+Email 3..254 formato email, único normalizado mediante índice DB;
+UserName=email normalizado. firstName/lastName 1..150. Password 12..128,
+mayúscula, minúscula, dígito y símbolo; nunca trim ni log. Sin campos Identity
+internos en salida. No asignar privilegios desde registro. Password de login acepta el mismo rango
+de longitud pero no reaplica reglas de complejidad a contraseñas ya existentes.
+LoginInput={email:string,password:string}.
+07: credenciales correctas/cuenta activa ->200 AuthSession y cookie refresh.
+Error/inactividad/bloqueo ->401 genérico sin revelar si existe email.
+Identity bloquea 15 minutos tras 5 intentos; registrar LastLoginAt.
+En P1 solo cuentas Admin creadas privadamente pueden login; P2 cualquier activa.
+AuthSession={accessToken:string,tokenType:"Bearer",expiresIn:900,user:User}.
+JWT HS256, secreto aleatorio mínimo 32 bytes, issuer/audience configurados;
+claims sub UUID,sid UUID,jti UUID,roles,iat,exp. Vigencia 15 minutos, tolerancia
+30 s. Validar algoritmo fijo/firma/iss/aud/exp y sid activo en CADA ruta privada.
+Consultar IsActive/lockout/roles actuales; claims no sustituyen permisos de DB.
 
-3.1 PostgreSQL y EF Core
-- Confirmar que AppDbContext corresponde al esquema fisico actual.
-- Corregir cardinalidad Business 1:N Branch, Branch 1:N BranchPhoto.
-- Configurar Npgsql.UseNetTopologySuite() y tipo geografico correcto.
-- Evitar que migrations de Identity recreen tablas del dominio existentes.
-- Separar esquema/migraciones Identity o delimitar explicitamente el contexto.
-- Mantener SQL fuente para funciones, triggers, EXCLUDE e indices GIN/GiST.
-- Verificar que funciones criticas compilan y funcionan con datos reales.
+Refresh: 32 bytes criptográficos base64url, hash SHA-256 en DB, nunca texto claro.
+Cookie dg_refresh, HttpOnly, Secure, SameSite=Strict, Path=/api/v1/auth, sin Domain.
+Secure=false solo Development HTTP local. Familia vence a los 30 días del login,
+sin extensión por renovación. Cookie Max-Age corresponde al tiempo restante.
+08: cookie vigente ->rotación atómica, 200 AuthSession y cookie nueva. Sin cookie,
+expirada/revocada ->401 y eliminar cookie. Reutilizar consumido revoca toda
+familia, incluidos JWT por sid. Bloquear familia: una sola renovación gana;
+frontend serializa refresh. Conservar hashes consumidos hasta vencer familia.
+09: con/sin cookie ->204, revocar familia reconocida y eliminar misma cookie/path.
+Sin Bearer obligatorio; refresh solo cookie, jamás en JSON/URL. Access token solo
+en memoria, nunca localStorage ni cookie.
+10: sesión Bearer activa ->200 User, no renueva token.
+28/P2: RegisterInput={email,password,firstName,lastName}; 201 User, roles=[User],
+sin sesión automática. Email duplicado ->409. Ruta inexistente en P1.
 
-3.2 Territorios y catalogos
-- Importar departamentos, provincias, municipios; INE como referencia y OSM
-  complementario. Conciliar nombres/codigos/jerarquia y anotar procedencia.
-- Comprobar SRID 4326, validez geometrica y asignacion de territorios.
-- Insertar categorias, servicios, caracteristicas y medios de pago.
-- No bloquear el MVP por falta de limites exactos de todas las zonas/barrios.
+No confirmación email ni recuperación pública por correo en alcance; cuentas
+sin privilegios no gestionan negocios. Operador verifica identidad mediante
+contacto comercial conocido y restablece privadamente con Identity UserManager
+GeneratePasswordResetTokenAsync/ResetPasswordAsync, revoca sesiones y entrega
+credencial temporal por canal acordado fuera de app. La herramienta local de
+mantenimiento deberá pedir secretos interactivamente, sin argumentos/logs;
+no actualizar hashes SQL ni abrir endpoint público de reset sin verificación.
 
-3.3 Seguridad inicial
-- Identity con Guid; roles Admin, Moderator, BusinessOwner y User.
-- Definir bootstrap seguro del primer administrador, no registro publico admin.
-- Configurar JWT, hash de refresh tokens, claves fuera de repositorio.
-- Agregar validacion de usuarios desactivados y bloqueo ante intentos fallidos.
-- Configurar OpenAPI solo segun politica de despliegue; endpoint de salud.
+CSRF: login/registro con application/json. Login/refresh/logout/registro exigen
+Origin permitido incluso sin body (ausente/distinto ->403). Cliente técnico
+incluye Origin permitido. Navegador credentials:include. Producción un origen
+HTTPS; Development orígenes explícitos CORS con credentials. Bearer no se
+sustituye por cookie. Exponer cabeceras ETag, X-Created-Resource-Id y Location.
+Límites por minuto, ventana fija, cola 0: login/registro 5/IP; refresh/logout
+30/IP; búsqueda 60/IP; otros públicos 120/IP; mutaciones privadas 30/usuario;
+lecturas privadas 120/usuario. Auth/me sin autenticación usa límite público.
+Forwarded headers solo de proxies conocidos antes de derivar IP. Health 120/IP.
 
-Criterios de aceptacion:
-- Migraciones de Identity no alteran app/catalog/geo.
-- Una consulta espacial de prueba usa GiST y devuelve resultados correctos.
-- Se puede iniciar sesion, validar JWT y denegar un token invalido.
-- Administrador inicial creado sin endpoint publico de elevacion de privilegios.
+4. CATÁLOGOS Y TERRITORIOS [P1]
 
-4. FASE 1 - CATALOGO ADMINISTRABLE Y API PUBLICA [P1]
-===================================================
+CatalogItem={id:UUID,code:string,name:string,sortOrder:int}.
+Category=CatalogItem + {parentId:UUID?}.
+Catalogs={categories:Category[],services:CatalogItem[],features:CatalogItem[],
+ paymentMethods:CatalogItem[]}.
+01: sin query, solo activos con ancestros activos; sortOrder,name,id.
+Categorías planas; cliente construye árbol. Máximo operativo 500 por colección;
+carga inicial debe cumplirlo, no truncar. Sin CRUD: scripts versionados con actor,
+sin desactivar referencias que invaliden fichas publicadas. Filtros solo por UUID,
+no mezclar code e ID en el mismo parámetro.
 
-4.1 Administracion indispensable (antes de habilitar autocarga de propietarios)
+Territory={id:UUID,parentId:UUID?,type:string,name:string,codeIne:string?,
+ bounds:number[]?}.
+type: department|province|municipality|zone|neighborhood.
+bounds=[minLng,minLat,maxLng,maxLat] de boundary o null; no geometría ni GeoJSON.
+02 query: type opcional enum; parentId opcional UUID (hijos DIRECTOS);
+page/pageSize. Sin parentId todos activos según type. Ambos deben cumplir
+jerarquía posible o400; parent inexistente/inactivo ->400. Orden nombre
+normalizado,id. Solo activos con ancestros activos. Barrio puede colgar de
+municipio o zona. Departamentos raíz cargados pertenecen a Bolivia; no tabla país.
 
-GET    /api/v1/admin/businesses?page=1&pageSize=20
-POST   /api/v1/admin/businesses
-GET    /api/v1/admin/businesses/{businessId}
-PATCH  /api/v1/admin/businesses/{businessId}
-PATCH  /api/v1/admin/businesses/{businessId}/publish
-PATCH  /api/v1/admin/businesses/{businessId}/unpublish
-DELETE /api/v1/admin/businesses/{businessId}           (BAJA LOGICA)
-POST   /api/v1/admin/businesses/{businessId}/restore
-POST   /api/v1/admin/businesses/{businessId}/branches
-PATCH  /api/v1/admin/branches/{branchId}
-DELETE /api/v1/admin/branches/{branchId}               (BAJA LOGICA)
+5. BÚSQUEDA JSON/GEOJSON [P1]
 
-Reglas:
-- Crear negocio y primera sucursal en una transaccion.
-- No eliminar fisicamente; asegurar una sucursal vigente por negocio vigente.
-- Cada sucursal incluye nombre, direccion, coordenadas y territorio resoluble.
-- Cada negocio publicado requiere datos minimos, al menos una sucursal vigente.
-- Una operacion administrativa debe dejar constancia de actor y momento.
-- No permitir eliminacion de la ultima sucursal de un negocio vigente.
-- La restauracion debe verificar conflictos de slug, codigos e indices parciales.
+03 query (opcionales salvo dependencias):
+ q           texto trim 1..200; vacío/blancos equivale a ausencia.
+ categoryId  UUID activo, incluye descendientes activos.
+ territoryId UUID activo, incluye descendientes activos.
+ lat         número [-90,90], requiere lng.
+ lng         número [-180,180], requiere lat.
+ radiusM     entero 1..50000, requiere centro; con centro omitido ->400.
+ bbox        string minLng,minLat,maxLng,maxLat, cuatro números finitos.
+ openNow     true|false, predeterminado false.
+ page        entero, predeterminado1, límites §2.
+ pageSize    entero, predeterminado20, límites §2.
+ format      json|geojson, predeterminado json.
 
-4.2 API publica de categorias y territorios
+Centro sin radio aplica10000m. Centro/radio y bbox EXCLUYENTES.
+bbox -180<=minLng<maxLng<=180, -90<=minLat<maxLat<=90; sin antimeridiano;
+ancho máximo13 grados, alto14.5 (caja operativa Bolivia). Radio/bbox fuera de
+Bolivia es consulta válida potencialmente vacía. No confundir con validación de
+alta. Sin centro/bbox ->catálogo nacional paginado. Filtros AND. No radiusKm,
+lon alias ni coma decimal. Boolean query solo true/false; int decimal base10.
 
-GET /api/v1/categories
-GET /api/v1/categories/{categoryId}
-GET /api/v1/territories?type=municipality&parentId={uuid}
+Visibilidad: business.published, business/branch.deleted_at NULL, ambos status
+no permanently_closed; territorio/ancestros activos y ubicación validada.
+Temporarily_closed sigue visible, isOpen=false. Cierre temporal del padre aplica
+al estado efectivo de sucursal.
+Texto: app.normalize (tildes/caso), trade_name y branch.name; substring literal o
+similarity pg_trgm >=0.3; más sinónimos activos es-BO con term normalizado=q.
+Escapar %/_ como literal, parametrizar SQL. Sin anuncios/reseñas en orden.
+Con centro: distancia sin redondear ASC,id ASC. Sin centro: normalize(tradeName),
+normalize(name),id ASC. distanceM entero redondeado para salida, null sin centro.
+ST_DWithin/ST_Distance geography en metros. bbox usa rectángulo geometry4326,
+ST_Covers sobre punto geometry (incluye borde), con prefiltrado espacial indexado;
+no transformar lados lat/lng en arcos geográficos. Filtrar radio antes de ordenar.
 
-Reglas:
-- Solo entidades activas; categorias pueden tener descendientes.
-- Territorios con parentId opcional y jerarquia consistente.
-- Responder solo metadatos necesarios, no poligonos extensos por defecto.
-
-4.3 Busqueda espacial de sucursales: endpoint PRINCIPAL
-
-GET /api/v1/branches
-
-Query:
-- q: texto opcional, hasta 200 caracteres.
-- categoryId: UUID opcional (incluye descendientes activos).
-- territoryId: UUID opcional (incluye descendientes territoriales).
-- lat, lng: centro opcional; ambos requeridos juntos.
-- radiusKm: positivo y acotado; requiere lat y lng.
-- bbox: minLng,minLat,maxLng,maxLat (viewport) opcional.
-- openNow: boolean opcional.
-- page, pageSize: paginacion; resultado estable.
-
-Ejemplo:
-GET /api/v1/branches?q=restaurante&lat=-16.4897&lng=-68.1193&radiusKm=5&page=1&pageSize=20
-
-Response 200 (ejemplo ilustrativo):
+Point={type:"Point",coordinates:[lng:number,lat:number]}.
+BusinessStatus=active|temporarily_closed|permanently_closed.
+BranchSummary={id:UUID,businessId:UUID,businessSlug:string,tradeName:string,
+ name:string,address:string,territoryId:UUID,location:Point,distanceM:int?,
+ status:BusinessStatus,isOpen:bool?,priceLevel:int?,coverPhotoUrl:string?}.
+status efectivo: temporal si cualquier padre/sucursal temporal; permanente nunca
+sale público. priceLevel=sucursal si existe, si no negocio;1..4 o null. Portada
+activa URL relativa /api/v1/photos/{photoId} o null. Sin calificaciones ficticias.
+JSON:200 Page<BranchSummary>, application/json. Ejemplo:
+```json
 {
   "items": [{
     "id": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
     "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-    "businessSlug": "restaurante-la-casona",
-    "tradeName": "Restaurante La Casona",
-    "name": "La Casona Centro",
-    "address": "Calle Junin 123",
-    "location": {"latitude": -16.4897, "longitude": -68.1193},
-    "distanceKm": 1.42,
+    "businessSlug": "la-casona",
+    "tradeName": "La Casona",
+    "name": "Centro",
+    "address": "Calle Junín 123",
+    "territoryId": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
+    "location": {"type": "Point", "coordinates": [-68.1193, -16.4897]},
+    "distanceM": 1420,
+    "status": "active",
     "isOpen": true,
-    "rating": {"average": 4.6, "count": 38},
-    "coverPhotoUrl": "/api/v1/photos/00000000-0000-4000-8000-000000000001"
+    "priceLevel": 2,
+    "coverPhotoUrl": null
   }],
   "pagination": {"page": 1, "pageSize": 20, "totalItems": 1, "totalPages": 1}
 }
-
-Reglas:
-- Solo negocios publicados y no dados de baja, y sucursales vigentes.
-- Usar PostGIS para radio y bbox; distancias de geography en METROS.
-- bbox debe tener orden valido y rango de coordenadas verificable.
-- Resultados sin coordenadas fuera de Bolivia; validar en creacion/importacion.
-- Distancia nula cuando no se envia centro.
-- En resultados de varias sucursales de un mismo negocio, cada sucursal
-  figura individualmente; no devolver solo una por negocio.
-- Verificar filtros territoriales: la funcion SQL actual app.find_branches()
-  NO tiene territoryId; requiere ampliacion o consulta compuesta validada.
-
-4.4 Detalle publico y fotografias
-
-GET /api/v1/businesses/{slug}
-GET /api/v1/branches/{branchId}
-GET /api/v1/photos/{photoId}
-
-Reglas:
-- Devolver sucursales, categorias, servicios, horarios, contactos comerciales,
-  precio nivel general, rangos en BOB, calificaciones y URL de fotos.
-- La URL de la foto debe ser de la API, que sirve el BYTEA correspondiente;
-  no retornar el binario en los DTO JSON ni suponer CDN.
-- Indicar Content-Type real, cache privada/publica segun visibilidad,
-  ETag y maximo de bytes; optimizar tamaño de respuestas.
-- Solo fotografias activas y de sucursales publicadas en la API publica.
-- No devolver NIT/taxId, datos de propietario ni historial de auditoria.
-- Hora local de sucursal: America/La_Paz; definir dia de semana 0=domingo.
-- Horarios y festivos consultados desde la logica SQL existente.
-
-Criterios de aceptacion Fase 1:
-- Un administrador puede dar de alta y publicar un negocio con una sucursal.
-- La API publica encuentra sucursales por texto, radio, mapa y categoria.
-- Negocios dados de baja o despublicados no aparecen en la API publica.
-- Foto BYTEA se entrega correctamente con MIME y sin cargarla en listados.
-- Pruebas muestran correspondencia de distancias y horarios con PostGIS.
-
-5. FASE 2 - USUARIOS, PROPIETARIOS Y OPERACIONES BASICAS [P1]
-============================================================
-
-5.1 Autenticacion JWT / Identity
-
-POST /api/v1/auth/register
-POST /api/v1/auth/login
-POST /api/v1/auth/refresh
-POST /api/v1/auth/logout
-GET  /api/v1/auth/me
-
-Request register:
+```
+GeoJSON:application/geo+json, RFC7946 WGS84 grados, SIEMPRE [lng,lat], sin crs.
+FeatureCollection={type:"FeatureCollection",features:BranchFeature[],
+ pagination:Pagination}; pagination miembro adicional con misma semántica JSON.
+BranchFeature={type:"Feature",id:UUID,geometry:Point,
+ properties:BranchSummary SIN id y SIN location}.
+Sin duplicar coordenadas ni geometrías null, altitud, estilos o bbox adicional.
+Feature.id=BranchSummary.id. Vacío features=[], total0. Ejemplo de la misma fila:
+```json
 {
-  "email": "usuario@example.com",
-  "password": "ContrasenaSeguraDeEjemplo123!",
-  "firstName": "Carlos",
-  "lastName": "Mamani"
-}
-
-Response login (ejemplo):
-{
-  "accessToken": "JWT_DE_EJEMPLO",
-  "tokenType": "Bearer",
-  "expiresIn": 900,
-  "user": {"id": "550e8400-e29b-41d4-a716-446655440000", "roles": ["User"]}
-}
-
-Reglas:
-- Tokens con exp, iss, aud, sub UUID, jti y firma validada.
-- Access token de duracion corta, configurable.
-- Refresh token opaco y con rotacion, almacenado como hash; preferir cookie
-  HttpOnly Secure SameSite apropiada al despliegue Nuxt/API.
-- Proteccion CSRF para operaciones basadas en cookie cuando aplique.
-- Reutilizacion de token rotado: invalidar su familia de sesion.
-- Registro publico no asigna roles administrativos ni verifica propietarios.
-- Email unico; politica de contrasena, throttling de login y recuperacion
-  de cuenta por canal verificado (si se habilita acceso publico).
-- Nunca confiar en userId/role enviados por request; derivar usuario del JWT.
-- IsActive, bloqueo y revocaciones deben aplicarse a acciones autorizadas.
-
-5.2 Verificacion y gestion basica de propietarios
-
-POST  /api/v1/owner/verification-requests
-GET   /api/v1/owner/verification-status
-GET   /api/v1/owner/businesses
-POST  /api/v1/owner/businesses
-PATCH /api/v1/owner/businesses/{businessId}
-POST  /api/v1/owner/businesses/{businessId}/branches
-PATCH /api/v1/owner/branches/{branchId}
-
-GET   /api/v1/admin/owner-verifications
-PATCH /api/v1/admin/owner-verifications/{requestId}/approve
-PATCH /api/v1/admin/owner-verifications/{requestId}/reject
-GET   /api/v1/admin/businesses/{businessId}/owners
-POST  /api/v1/admin/businesses/{businessId}/owners
-DELETE /api/v1/admin/businesses/{businessId}/owners/{userId} (REVOCACION)
-
-Reglas:
-- Multiples propietarios verificados por negocio.
-- Crear y publicar automaticamente un negocio SOLO si el usuario tiene
-  identidad verificada y cumple la politica de titularidad requerida.
-- Un usuario no verificado puede solicitar verificacion, NO forzar
-  publicationStatus=published. El alta no verificada queda pendiente o se
-  rechaza con 403 segun flujo elegido; definirlo antes de desarrollo.
-- Gestion directa de informacion solo para propietarios asociados y vigentes.
-- Revocar propiedad no borra historicos ni usuarios Identity.
-- Las solicitudes de verificacion necesitan una tabla/flujo persistente:
-  el SQL revisado previamente tiene owner_identity y business_owner, pero no
-  necesariamente una entidad de solicitudes con estado, pruebas y resolucion.
-  Agregarla antes de implementar estos endpoints o simplificar la verificacion
-  al proceso exclusivamente administrativo.
-
-5.3 Gestion de fotos por propietarios
-
-POST   /api/v1/owner/branches/{branchId}/photos
-PATCH  /api/v1/owner/branches/{branchId}/photos/{photoId}/primary
-PATCH  /api/v1/owner/branches/{branchId}/photos/{photoId}/order
-DELETE /api/v1/owner/branches/{branchId}/photos/{photoId} (BAJA LOGICA)
-
-Reglas:
-- Upload multipart/form-data, no bytes base64 en JSON.
-- Validar firma real, MIME, tamaño y limite de fotos configurables.
-- Una sola foto principal activa por sucursal; permitir secundarias.
-- Comprobar en cada operacion propiedad verificada o rol administrativo.
-- No copiar BYTEA a logs, reportes o DTO.
-
-Criterios de aceptacion Fase 2:
-- Una cuenta no verificada no publica negocios automaticamente.
-- Propietario A nunca modifica sucursales de propietario B.
-- JWT expirado/revocado no concede acceso a funciones protegidas.
-- Dos propietarios verificados pueden administrar el mismo negocio.
-
-6. FASE 3 - INTERACCION Y MODERACION [P2]
-========================================
-
-6.1 Favoritos
-
-GET    /api/v1/favorites
-PUT    /api/v1/favorites/{branchId}
-DELETE /api/v1/favorites/{branchId}
-
-Reglas:
-- Recurso identificado por usuario autenticado + branchId.
-- PUT idempotente activa corazon, DELETE idempotente desactiva.
-- No exponer identificadores de otros usuarios.
-- La DB actual permite baja logica de favoritos; utilizar INSERT/UPSERT.
-- Evitar toggle para solicitudes reintentadas: toggle no es idempotente.
-
-6.2 Reseñas y respuestas
-
-GET   /api/v1/branches/{branchId}/reviews?page=1&pageSize=10
-POST  /api/v1/branches/{branchId}/reviews
-PATCH /api/v1/reviews/{reviewId}            (solo autor, si politica permite)
-DELETE /api/v1/reviews/{reviewId}           (BAJA LOGICA)
-POST  /api/v1/owner/reviews/{reviewId}/reply
-PATCH /api/v1/admin/reviews/{reviewId}/moderate
-GET   /api/v1/admin/reviews?moderationStatus=flagged
-
-Request crear reseña:
-{
-  "rating": 5,
-  "title": "Muy buena atencion",
-  "body": "El servicio fue rapido."
-}
-
-Response 201 (ejemplo):
-{
-  "id": "a1b2c3d4-1111-4444-8888-222222222222",
-  "branchId": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-  "moderationStatus": "visible"
-}
-
-Reglas:
-- 1 <= rating <= 5; multiples reseñas por usuario y sucursal PERMITIDAS.
-- Moderacion POSTERIOR: visible inicialmente, admin oculta o marca.
-- Solo reseñas visibles contribuyen a promedio y conteo publico.
-- Una respuesta vigente por reseña segun la tabla review_reply existente.
-- Propietario asociado/validado puede responder; no modificar reseña ajena.
-- Necesario reducir spam con rate limit y limites de frecuencia/texto, sin
-  introducir restriccion de unicidad que contradiga la decision funcional.
-- Si se permiten reportes de usuarios, requeriran endpoint y persistencia
-  adicionales; no estan implementados en el documento original.
-
-Criterios de aceptacion Fase 3:
-- Varias reseñas del mismo usuario a la misma sucursal son validas.
-- Reseña ocultada desaparece de listas y calificaciones publicas.
-- Favorito agrega/quita corazon sin crear duplicados.
-
-7. FASE 4 - OPERACION Y ESTADISTICAS [P2]
-=======================================
-
-7.1 Dashboard basico y analitica
-
-GET /api/v1/admin/dashboard
-GET /api/v1/owner/businesses/{businessId}/metrics?from=2026-10-01&to=2026-10-31
-GET /api/v1/admin/audit-logs
-
-Metricas y unidades de medida (definir claramente):
-- profileViews: vistas de ficha.
-- contactClicks: clics de contacto (no equivalen a ventas).
-- directionsClicks: solicitudes de ruta.
-- favorites: total de favoritos activos, no necesariamente clics del periodo.
-- adImpressions y adClicks: solo si existe contrato publicitario identificable.
-- conversiones: INTERACCIONES medibles, no transacciones comerciales reales.
-
-Reglas:
-- Registrar eventos con occurred_at UTC; agrupar dias en America/La_Paz.
-- Conservar IP y user-agent conforme a decision previa, con controles de
-  acceso, cifrado y politicas legales de retencion/revision.
-- Mover eventos de app.event a app.event_hist con antiguedad de 7 dias mediante
-  tarea programada, transaccional e idempotente.
-- Consolidados diarios/mensuales deben consultar datos historicos y activos
-  sin doble conteo; verificar integridad de event_hist y duplicados.
-- Implementar job de mantenimiento (no asumir que PL/pgSQL se autoejecuta).
-- Solo propietarios asociados ven metricas de sus negocios.
-- No mostrar IP, user-agent u otros datos personales en dashboard publico.
-
-7.2 Importaciones CSV / Excel
-
-POST /api/v1/admin/imports
-GET  /api/v1/admin/imports/{batchId}
-GET  /api/v1/admin/imports/{batchId}/rows?decision=pending
-PATCH /api/v1/admin/imports/{batchId}/rows/{rowId}/decision
-POST /api/v1/admin/imports/{batchId}/apply
-
-Reglas:
-- Excel/CSV se interpreta en servicio de importacion; SQL recibe registros
-  normalizados/estructurados; no supone que PostgreSQL interprete XLSX.
-- Previsualizar filas, validar lat/lng, codigos y duplicados probables.
-- Duplicados enviados a revision, no sobrescribir negocios automaticamente.
-- Aplicacion transaccional por lote o por unidades consistentes; reportar
-  errores parciales y evitar duplicar al reintentar.
-
-7.3 Publicidad de periodo fijo
-
-GET   /api/v1/admin/ads
-POST  /api/v1/admin/ads
-PATCH /api/v1/admin/ads/{adId}
-PATCH /api/v1/admin/ads/{adId}/activate
-PATCH /api/v1/admin/ads/{adId}/pause
-GET   /api/v1/admin/ads/{adId}/metrics
-
-Reglas:
-- Contratos por negocio completo O sucursal individual, nunca ambos a la vez.
-- Pago fijo en BOB, rango de vigencia y posicion definidos.
-- Solo publicidad pagada, activa, vigente y asociada a contenido publicado.
-- Evitar prometer resultados de conversion comercial real cuando solo se
-  registran impresiones/clics.
-- Activacion y expiracion con tarea programada y auditoria.
-
-Criterios de aceptacion Fase 4:
-- Informe no duplica eventos cuando estos pasan a event_hist.
-- Un archivo con duplicados genera revisiones antes de aplicar cambios.
-- Anuncio vencido o no pagado no se devuelve como patrocinado.
-
-8. FASE 5 - POSTERIOR AL MVP [P3]
-================================
-
-- Promociones, productos y catalogo comercial: expresamente fuera del MVP.
-- Analitica avanzada de embudos, atribucion y cohortes.
-- Ranking patrocinado avanzado y experimentacion de anuncios.
-- Optimizaciones de busqueda de gran escala no justificadas por miles de
-  sucursales (motor externo, microservicios, colas distribuidas).
-- Versionado multilenguaje de busqueda; el idioma inicial es español.
-- Geocodificacion masiva automatica con proveedores externos.
-- Herramientas de moderacion asistida y deteccion automatica de fraude.
-
-9. VALIDACIONES Y CASOS DE PRUEBA OBLIGATORIOS [P0/P1]
-=====================================================
-
-SEGURIDAD
-- Un usuario no puede elevar su rol en registro ni editar cuentas ajenas.
-- Un BusinessOwner no puede modificar negocios a los que no pertenece.
-- Usuario IsActive=false o vinculo revocado no obtiene acceso sensible.
-- JWT con firma, issuer, audience o vencimiento invalidos recibe 401.
-- Peticion sin permisos devuelve 403 o 404 segun politica de divulgacion.
-- Rate limiting en login, registro, reseñas, uploads y busquedas.
-
-DATOS Y TRANSACCIONES
-- No se confirma transaccion de negocio sin sucursal vigente.
-- No se admite baja de la ultima sucursal de un negocio vigente.
-- La baja es logica: las relaciones e historicos permanecen.
-- Slug y claves unicas producen error de conflicto 409 controlado.
-- Fotos: solo una principal vigente y tipo/longitud correctos.
-- Categoria hija se incluye al consultar categoria padre.
-
-GEOESPACIAL
-- Coordenadas se interpretan como longitude,latitude al construir Point.
-- Filtro por radio usa metros en SQL, aunque API exponga kilometros.
-- Consultas bbox funcionan sin cruzar ejes y con SRID 4326.
-- Ubicaciones de Bolivia verificadas con limites territoriales cargados.
-- Consulta por territoryId cubre descendientes relevantes.
-- Horarios nocturnos, festivos nacionales/regionales y overrides por sucursal.
-
-RESILIENCIA Y CALIDAD
-- Sin consultas N+1 en listas; sin PHOTO_DATA en respuestas no binarias.
-- Indices GIN/GiST, EXCLUDE y triggers presentes tras regenerar entidades.
-- Importacion repetida no crea duplicados sin revision.
-- Archivado app.event -> app.event_hist no pierde ni duplica eventos.
-- Versionado de contratos OpenAPI y tests de integracion PostgreSQL real.
-- Logs con traceId; no registrar contraseñas, JWT ni contenido BYTEA.
-
-10. CONTRATOS ABIERTOS / DECISIONES QUE REQUIEREN CIERRE
-========================================================
-
-D-01. Si un usuario no verificado solicita un negocio: crear borrador pendiente
-      o responder 403 hasta completar verificacion. Ambas opciones requieren
-      definir el proceso; la publicacion directa es SOLO para verificados.
-D-02. Definir evidencia y procedimiento de verificacion de propietarios, y
-      revocacion/renovacion. El rol BusinessOwner por si solo no es evidencia.
-D-03. Definir propietario original de negocio importado/no reclamado y la
-      politica contra reclamaciones indebidas.
-D-04. Definir limite de radio por configuracion y su semantica nacional,
-      y cantidad maxima de resultados del bbox sin paginacion.
-D-05. Determinar si la API permite editar una reseña ya publicada y si deja
-      historial de edicion; mantener reseñas multiples independientemente.
-D-06. Resolver si todas las tablas de usuarios del sistema usan Guid y como
-      se migra/normaliza owner_identity.user_id y business_owner.user_id TEXT.
-D-07. Confirmar planificador para archivado semanal y publicidades: Quartz,
-      hosted worker o planificador externo; asegurar ejecucion exclusiva.
-D-08. Confirmar politica legal y operativa para retencion perpetua de IP y
-      user-agent, respaldos, acceso y posibles solicitudes de privacidad.
-
-11. ESTRUCTURA RECOMENDADA DE BACKEND (MONOLITO MODULAR)
-=======================================================
-
-backend/
-  Program.cs
-  appsettings.json
-  Controllers/
-    AuthController.cs
-    BranchesController.cs
-    BusinessesController.cs
-    CategoriesController.cs
-    TerritoriesController.cs
-    PhotosController.cs
-    AdminBusinessesController.cs
-    OwnerBusinessesController.cs
-    ReviewsController.cs
-    FavoritesController.cs
-  Data/
-    AppDbContext.cs                (Database First; codigo generado)
-    IdentityDbContext.cs           (migraciones de Identity aisladas)
-    Configurations/
-  Models/                       (entidades generadas de dominio)
-  Identity/                     (ApplicationUser, ApplicationRole)
-  DTOs/                         (requests / responses independientes)
-  Services/                     (reglas de aplicacion)
-  Authorization/                (policies y handlers por negocio)
-  Validation/                   (validaciones de solicitudes)
-  Middleware/                   (ProblemDetails / tracing)
-  BackgroundJobs/               (archivado y expiracion; P2)
-
-No crear capas Repository para cada tabla si EF Core DbContext ya cubre
-el patron; agregar abstracciones solo cuando resuelvan una necesidad real.
-Mantener operaciones SQL atomicas importantes en PL/pgSQL, con acceso EF Core
-mediante consultas/comandos parametrizados.
-
-12. ESTRUCTURA RECOMENDADA DE FRONTEND (NUXT + VUE 3)
-=====================================================
-
-frontend/
-  nuxt.config.ts
-  pages/
-    index.vue
-    businesses/[slug].vue
-    login.vue
-    register.vue
-    owner/index.vue
-    owner/businesses/[id].vue
-    admin/index.vue
-  components/
-    BusinessCard.vue
-    BranchMap.vue
-    SearchFilters.vue
-    OpeningHours.vue
-    PhotoGallery.vue
-  composables/
-    useApi.ts
-    useSearch.ts
-    useAuth.ts
-  middleware/
-    auth.ts
-    admin.ts
-    owner.ts
-  layouts/
-    default.vue
-    owner.vue
-    admin.vue
-  types/
-    api.ts
-    business.ts
-    branch.ts
-  stores/                       (Pinia, solo si aporta valor)
-  assets/
-  package.json
-
-Nota: el router de Nuxt es basado en archivos; no emplear el esquema .tsx
-propuesto en la version previa salvo decision explicita de usar JSX.
-
-13. ORDEN FINAL DE IMPLEMENTACION (DE MAYOR A MENOR NECESIDAD)
-============================================================
-
-P0 - BLOQUEANTE
-01. Corregir modelo EF Core / Identity / PostgreSQL y cardinalidades.
-02. Validar SQL, PostGIS, territorios base y catalogos necesarios.
-03. Definir DTO, errores, autenticacion, autorizacion y bootstrap de admin.
-04. Establecer transacciones, baja logica y auditoria imprescindibles.
-
-P1 - MVP INDISPENSABLE
-05. CRUD administrativo de negocios y sucursales; publicacion y baja logica.
-06. Endpoints publicos de categorias y territorios.
-07. Busqueda de sucursales por texto, categoria, radio y bbox.
-08. Detalle de negocio/sucursales, horarios, contactos y fotografias BYTEA.
-09. Registro/login/refresh/logout y gestion basica de identidad.
-10. Verificacion de propietarios y vinculacion a negocios.
-11. Alta/edicion por propietario verificado y gestion de fotos.
-12. Pruebas integrales, seguridad y despliegue controlado.
-
-P2 - MVP COMPLEMENTARIO / PRIMERA ITERACION TRAS SALIDA
-13. Favoritos idempotentes.
-14. Reseñas multiples con moderacion posterior y respuesta de propietario.
-15. Metricas basicas y archivado semanal de eventos.
-16. Importaciones CSV/Excel con conciliacion de duplicados.
-17. Publicidad de periodo fijo y metricas de anuncios.
-18. Paneles enriquecidos de propietario y administrador.
-19. Autocompletado y sinonimos avanzados; puede adelantarse si la busqueda
-    inicial no alcanza la calidad minima de descubrimiento.
-
-P3 - NO INCLUIR EN MVP
-20. Promociones y catalogo de productos.
-21. Analitica predictiva, personalizacion y funciones distribuidas complejas.
-
-Nota sobre el alcance: los requisitos P2 siguen siendo objetivos del producto
-confirmados previamente; la etiqueta P2 solo expresa que NO bloquean una
-primera salida util del directorio. Si se exige un MVP comercial monetizable,
-adelantar publicidad e importaciones desde P2 a P1 con sus pruebas asociadas.
-
-14. DEFINICION DE TERMINADO DEL MVP
-===================================
-
-El lanzamiento se considera aceptable solo si:
-- Tiene datos reales suficientes para verificar el flujo completo en Bolivia.
-- Busqueda y mapa operan con filtros sin filtrar negocios no publicados.
-- El administrador puede gestionar el ciclo de vida de negocios/sucursales.
-- Hay proteccion real de propiedad, sesiones JWT y endpoints administrativos.
-- Las fotografias BYTEA se muestran sin exponer bytes en respuestas JSON.
-- Las funciones PL/pgSQL y restricciones existentes sobreviven a cambios de EF.
-- Las pruebas de integridad, autorizacion, rendimiento basico y respaldo
-  han sido ejecutadas contra una instancia real de PostgreSQL/PostGIS.
-
-
-15. CONTRATOS REQUEST Y RESPONSE POR ENDPOINT [P0/P1/P2]
-========================================================
-
-NOTAS GENERALES DE LOS EJEMPLOS:
-- Son contratos propuestos; validar nombres de columnas, estados y procedimientos
-  con la base fisica antes de congelar OpenAPI. No representan ejecuciones reales.
-- JSON solo se envia en solicitudes con cuerpo. GET y DELETE no llevan JSON
-  salvo que se indique explicitamente; PATH y QUERY son parametros URL.
-- Authorization: Bearer {accessToken} en endpoints privados.
-- UUID ilustrativos validos; reemplazar por IDs existentes en cada entorno.
-- Los cambios PATCH solo aceptan campos editables; no admitir userId, status
-  sensible o roles arbitrarios. Campos ausentes no modifican el recurso.
-- Fechas en UTC ISO 8601 y precios en BOB; no enviar datos privados al publico.
-- 204 = sin cuerpo; fotos GET responden bytes, no JSON. Subidas son multipart.
-- Errores comunes: 400 validacion, 401 no autenticado, 403 prohibido,
-  404 inexistente/no visible, 409 conflicto, 413 archivo excesivo,
-  415 MIME invalido y 429 limites de peticiones.
-- Paginados usan {items,pagination}; estos ejemplos incluyen un solo elemento.
-- Si la verificacion requiere tabla nueva, endpoints afectados quedan
-  condicionados a la decision D-01/D-02, no son implementables tal cual.
-
-
-15.1 ADMINISTRACION DE NEGOCIOS Y SUCURSALES [P1]
-=================================================
-
-GET /api/v1/admin/businesses
-Parametros URL: page=1&pageSize=20&publicationStatus=draft
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-      "slug": "restaurante-la-casona",
+  "type": "FeatureCollection",
+  "features": [{
+    "type": "Feature",
+    "id": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
+    "geometry": {"type": "Point", "coordinates": [-68.1193, -16.4897]},
+    "properties": {
+      "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
+      "businessSlug": "la-casona",
       "tradeName": "La Casona",
-      "legalName": "La Casona SRL",
-      "taxId": "1020304050",
-      "publicationStatus": "draft",
+      "name": "Centro",
+      "address": "Calle Junín 123",
+      "territoryId": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
+      "distanceM": 1420,
       "status": "active",
-      "branchesCount": 1
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 1,
-    "totalPages": 1
-  }
-}
-
-POST /api/v1/admin/businesses
-Request JSON:
-{
-  "tradeName": "La Casona",
-  "legalName": "La Casona SRL",
-  "taxId": "1020304050",
-  "description": "Comida boliviana",
-  "branch": {
-    "name": "La Casona Centro",
-    "address": "Calle Ejemplo 123",
-    "territoryId": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
-    "location": {
-      "latitude": -16.4897,
-      "longitude": -68.1193
-    },
-    "categories": [
-      "c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111"
-    ],
-    "contacts": [
-      {
-        "type": "phone",
-        "value": "+591 2 2000000"
-      }
-    ]
-  }
-}
-Response 201 JSON:
-{
-  "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "slug": "restaurante-la-casona",
-  "publicationStatus": "draft",
-  "branchId": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222"
-}
-Notas: Creacion atomica de negocio y primera sucursal.
-
-GET /api/v1/admin/businesses/{businessId}
-Request body: ninguno.
-Response 200 JSON:
-{
-  "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "slug": "restaurante-la-casona",
-  "tradeName": "La Casona",
-  "legalName": "La Casona SRL",
-  "taxId": "1020304050",
-  "publicationStatus": "draft",
-  "status": "active",
-  "branchesCount": 1,
-  "branches": [
-    {
-      "id": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-      "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-      "businessSlug": "restaurante-la-casona",
-      "tradeName": "La Casona",
-      "name": "La Casona Centro",
-      "address": "Calle Ejemplo 123",
-      "location": {
-        "latitude": -16.4897,
-        "longitude": -68.1193
-      },
-      "distanceKm": 1.42,
       "isOpen": true,
-      "coverPhotoUrl": "/api/v1/photos/00000000-0000-4000-8000-000000000001",
-      "territory": {
-        "id": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
-        "name": "La Paz",
-        "type": "municipality",
-        "codeIne": "020101"
-      },
-      "contacts": [
-        {
-          "type": "phone",
-          "value": "+591 2 2000000"
-        }
-      ],
-      "categories": [
-        {
-          "id": "c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111",
-          "name": "Restaurantes"
-        }
-      ],
-      "services": [
-        "Menu ejecutivo"
-      ],
-      "openingHours": [
-        {
-          "dayOfWeek": 1,
-          "open": "08:00",
-          "close": "22:00"
-        }
-      ],
-      "photos": [
-        {
-          "id": "00000000-0000-4000-8000-000000000001",
-          "url": "/api/v1/photos/00000000-0000-4000-8000-000000000001",
-          "isPrimary": true
-        }
-      ]
+      "priceLevel": 2,
+      "coverPhotoUrl": null
     }
-  ]
+  }],
+  "pagination": {"page": 1, "pageSize": 20, "totalItems": 1, "totalPages": 1}
 }
+```
+format elige representación. Accept ausente o */* la admite; si no admite la
+solicitada ->406 ProblemDetails. Resto rutas JSON solo JSON. No /map ni /nearby.
 
-PATCH /api/v1/admin/businesses/{businessId}
-Request JSON:
-{
-  "tradeName": "La Casona Bolivia",
-  "description": "Cocina regional"
-}
-Response 200 JSON:
-{
-  "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "slug": "restaurante-la-casona",
-  "tradeName": "La Casona Bolivia",
-  "legalName": "La Casona SRL",
-  "taxId": "1020304050",
-  "publicationStatus": "draft",
-  "status": "active",
-  "branchesCount": 1
-}
+6. FICHAS Y HORARIOS [P1]
 
-PATCH /api/v1/admin/businesses/{businessId}/publish
-Request JSON:
-{}
-Response 200 JSON:
-{
-  "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "publicationStatus": "published",
-  "publishedAt": "2026-11-05T20:00:00Z"
-}
-Notas: Verificar requisitos de publicacion. Si no acepta opciones, request body puede omitirse.
+PublicBusiness={id:UUID,slug:string,tradeName:string,description:string?,
+ status:BusinessStatus,priceLevel:int?,branches:PublicBranch[]}.
+04: slug1..160 regex ^[a-z0-9]+(-[a-z0-9]+)*$, exacto, sin query/body. Todas las
+sucursales visibles, principal primero,name,id, máximo100. Sin visibles ->404.
+PublicBranch=BranchSummary + {description:string?,isPrimary:bool,
+ businessStatus:BusinessStatus,branchStatus:BusinessStatus,
+ territoryPath:TerritoryRef[],categories:CatalogRef[],services:CatalogRef[],
+ features:CatalogRef[],paymentMethods:CatalogRef[],contacts:Contact[],
+ hoursKnown:bool,openingHours:OpeningHour[],hourOverrides:HourOverride[],
+ holidays:Holiday[],timeZone:"America/La_Paz",evaluatedAt:Instant,
+ minPriceBob:Money?,maxPriceBob:Money?,photos:Photo[]}.
+CatalogRef={id:UUID,code:string,name:string}.
+TerritoryRef={id:UUID,type:string,name:string}, raíz a hoja.
+Photo={id:UUID,url:string,altText:string?,isPrimary:bool,sortOrder:int}.
+Contact={type:string,value:string}; phone|whatsapp|email|website|facebook|instagram.
+Una fila por tipo, máximo 6. value no vacío y hasta 500 caracteres; phone/whatsapp E.164 ^\+[1-9][0-9]{7,14}$; email válido;
+URLs HTTPS sin credenciales, host válido, <=500. No descargar URLs en servidor.
+UI construye tel:/mailto:/wa.me. Orden contactos según enum anterior.
 
-PATCH /api/v1/admin/businesses/{businessId}/unpublish
-Request JSON:
-{
-  "reason": "Datos comerciales por verificar"
-}
-Response 200 JSON:
-{
-  "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "publicationStatus": "draft"
-}
-Notas: El estado de destino debe coincidir con CHECK de PostgreSQL.
+OpeningHour={weekday:int,opensAt:Time,closesAt:Time},0domingo..6sábado.
+Máximo28 turnos semanales, opensAt!=closesAt. closesAt<opensAt cruza medianoche.
+Sin solapes en semana circular, incluido sábado/domingo; intervalos [abre,cierra).
+24h se representa por turnos adyacentes00:00-12:00 y12:00-00:00, no horas iguales.
+HourOverride={date:Date,isClosed:bool,opensAt:Time?,closesAt:Time?,reason:string?}.
+Una/fecha, máximo366, reason<=300. Cerrada exige horas null; abierta ambas
+no nulas diferentes, una franja con cruce permitido. Sustituye semanal/festivo.
+Holiday={date:Date,name:string}; nacionales o ancestros territoriales, expandir
+recurrentes en ventana de salida, distintos por fecha/nombre.
+Calendario público: ayer hasta hoy+365 días inclusive, según evaluatedAt local.
+Horarios orden weekday,opensAt; overrides fecha; holidays fecha,name; catálogos
+nombre,id; fotos sortOrder,id. EvaluatedAt único por respuesta, también búsqueda.
 
-DELETE /api/v1/admin/businesses/{businessId}
-Request body: ninguno.
-Response 204: sin contenido.
-Notas: Baja logica; no eliminar fisicamente.
+hoursKnown=false exige openingHours=[]; isOpen=null sin excepción hoy ni festivo.
+hoursKnown=true con [] significa cerrado toda semana. Temporal fuerza false.
+Festivo sin override y override cerrado hoy fuerzan false TODA fecha, anulando
+arrastre previo. En otros casos evaluar hoy y arrastre de ayer según regla de
+ayer. Apertura explícita hoy puede coexistir con arrastre válido; alguna franja
+abierta ->true. Sin franja, false si hoursKnown o excepción hoy, null si desconocido.
+openNow solo incluye true. No calcular una regla distinta en navegador.
+05 sin query/body, distanceM=null; también null en sucursales de04.
+PublicBranch.description=descripción del negocio. No legalName/taxId, IDs/emails
+de propietarios, revisión ni auditoría pública. Precio orientativo1económico,
+2medio,3alto,4muy alto; no simular cero por ausencia. Rangos de sucursal BOB
+independientes opcionales, ambos informados min<=max. Sin service_price en API.
 
-POST /api/v1/admin/businesses/{businessId}/restore
-Request JSON:
-{}
-Response 200 JSON:
-{
-  "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "status": "active",
-  "deletedAt": null
-}
-Notas: Restauracion sujeta a conflictos de unicidad.
+7. GESTIÓN DE NEGOCIOS [P1, PERMISOS P2]
 
-POST /api/v1/admin/businesses/{businessId}/branches
-Request JSON:
+11 query:q opcional1..200 por tradeName/slug; publicationStatus opcional
+(draft|published|archived); deleted=false|true predeterminado false; page/pageSize.
+Filtros AND, substring normalizada literal; updatedAt DESC,id ASC. Solo Admin
+puede deleted=true; propietario ->403. M solo lista vínculos vigentes propios.
+ManagedSummary={id:UUID,slug:string,tradeName:string,status:BusinessStatus,
+ publicationStatus:string,deletedAt:Instant?,updatedAt:Instant,branchCount:int}.
+branchCount=no eliminadas. ID11 solo devuelve resumen.
+
+BusinessInput Admin={tradeName:string,description:string?,status:BusinessStatus,
+ priceLevel:int?,legalName:string?,taxId:string?}, todas requeridas.
+tradeName1..200; description<=5000; legalName<=250;taxId<=50. Nullable textual
+vacío se normaliza null. priceLevel null o1..4. taxId exacto único, sin inferir
+reglas tributarias adicionales. Propietario debe OMITIR legalName/taxId, incluso
+null se rechaza400; los otros cuatro campos siguen siendo obligatorios.
+CreateBusiness={business:BusinessInput,branch:BranchInput}.
+12: crea draft y primera sucursal isPrimary=true en una transacción. status alta
+active o temporarily_closed, no permanente. Slug automático e inmutable: normalizar
+ASCII minúscula, letras/dígitos con guiones, base<=140, fallback negocio. Colisión:
+base + guion +12 hex del UUID; reintentar UUID si colisión. Máximo160, UNIQUE
+incluye eliminados, no reutilizar slug. P2 propietario requiere identidad vigente,
+asociación verificada al creador atómica, sigue draft. No publicación automática.
+POST duplicado puede crear otro; deshabilitar doble envío y no reintentar POST
+sin conocer resultado. Sin claves de idempotencia en este alcance.
+
+ManagedBusiness={id:UUID,slug:string,tradeName:string,description:string?,
+ status:BusinessStatus,priceLevel:int?,publicationStatus:string,
+ createdAt:Instant,updatedAt:Instant,deletedAt:Instant?,revision:string,
+ branches:ManagedBranch[],privateData:{legalName:string?,taxId:string?}}.
+privateData solo Admin. publicationStatus siempre draft|published|archived.
+ManagedBranch={id:UUID,businessId:UUID,createdAt:Instant,deletedAt:Instant?,
+ input:BranchInput,photos:Photo[]}.
+input son valores editables almacenados, sin herencias. Admin ve eliminadas
+para restauración; propietario solo no eliminadas. Orden no eliminadas primero,
+principal primero,name,id. Máximo100 sucursales no eliminadas y500 históricas
+por negocio; alcanzar límite ->409, nunca truncar salida. Fotos solo activas,
+hasta20 por sucursal; no devolver binario.
+13 permite Admin leer eliminado; M solo vigente asociado.
+14 actualiza BusinessInput. Negocio eliminado ->409; usar17.
+
+PublicationInput={status:"draft"|"published"}.
+15 solo Admin, draft<->published o mismo estado. Publicar exige nombre,
+descripción no vacía y slug; negocio vigente no permanente; >=1 sucursal vigente
+no permanente. TODAS las sucursales visibles: dirección, punto/municipio válido,
+>=1 categoría activa, >=1 contacto. No exige precio/foto/horario; informar ausencia.
+Ningún body acepta pending/rejected/archived. Si ya published, edición debe
+preservar condiciones o rollback400; no despublicar silenciosamente. Status del
+negocio a permanente pasa a draft atómicamente; no se republica hasta corregir.
+16 baja lógica negocio y sucursales, publication=archived. Ya baja con ETag
+vigente ->204 sin cambio. No bajar fotos/relaciones ni revocar propietarios;
+visibilidad deriva del padre. Conservar timestamps de sucursales bajas previas.
+
+RestoreInput={branchIds:UUID[]},1..100 distintos, del negocio y eliminados.
+17 solo negocio eliminado, otro estado ->409. Restaurar exclusivamente selección,
+negocio draft; conservar status comercial y slug, otras bajas siguen. Si ninguna
+seleccionada conserva principal, asignar primera createdAt,id; si había más de
+una (datos legacy), reparar como §12. No restaurar fotos eliminadas individualmente.
+Validar referencias/ubicación; conflicto rollback409 o400 por campo. Históricos
+que no cumplan contrato deben corregirse por mantenimiento antes de restauración.
+
+8. SUCURSALES Y COLECCIONES
+
+BranchInput={name:string,address:string,territoryId:UUID,location:Point,
+ status:BusinessStatus,isPrimary:bool,priceLevel:int?,minPriceBob:Money?,
+ maxPriceBob:Money?,categoryIds:UUID[],serviceIds:UUID[],featureIds:UUID[],
+ paymentMethodIds:UUID[],contacts:Contact[],hoursKnown:bool,
+ openingHours:OpeningHour[],hourOverrides:HourOverride[]}.
+Todo obligatorio. name1..200,address1..1000; categorías0..10; servicios,
+características/pagos0..30 cada una; resto límites §6. emergency/home_service,
+accessibility JSONB, service_price, descripción de servicio, code y slug de
+sucursal no se exponen/editan: no agregar campos libres.
+Ejemplo completo para alta/PUT:
+```json
 {
-  "name": "La Casona Sur",
-  "address": "Av. Ejemplo 456",
+  "name": "Centro",
+  "address": "Calle Junín 123",
   "territoryId": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
-  "location": {
-    "latitude": -16.52,
-    "longitude": -68.12
-  },
-  "categories": [
-    "c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111"
-  ]
-}
-Response 201 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000020",
-  "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "name": "La Casona Sur",
-  "status": "active"
-}
-
-PATCH /api/v1/admin/branches/{branchId}
-Request JSON:
-{
-  "name": "La Casona Central",
-  "address": "Calle Ejemplo 125"
-}
-Response 200 JSON:
-{
-  "id": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-  "name": "La Casona Central",
-  "address": "Calle Ejemplo 125"
-}
-
-DELETE /api/v1/admin/branches/{branchId}
-Request body: ninguno.
-Response 204: sin contenido.
-Notas: Impedir baja de la ultima sucursal vigente de un negocio vigente.
-
-
-15.2 CATALOGOS Y BUSQUEDA PUBLICA [P1]
-======================================
-
-GET /api/v1/categories
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "id": "c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111",
-      "code": "restaurantes",
-      "name": "Restaurantes",
-      "children": []
-    }
-  ]
-}
-
-GET /api/v1/categories/{categoryId}
-Request body: ninguno.
-Response 200 JSON:
-{
-  "id": "c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111",
-  "code": "restaurantes",
-  "name": "Restaurantes",
-  "children": []
-}
-
-GET /api/v1/territories
-Parametros URL: type=municipality&parentId={uuid}
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "id": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
-      "name": "La Paz",
-      "type": "municipality",
-      "codeIne": "020101"
-    }
-  ]
-}
-
-GET /api/v1/branches
-Parametros URL: q=restaurante&categoryId={uuid}&lat=-16.4897&lng=-68.1193&radiusKm=5&page=1&pageSize=20
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "id": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-      "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-      "businessSlug": "restaurante-la-casona",
-      "tradeName": "La Casona",
-      "name": "La Casona Centro",
-      "address": "Calle Ejemplo 123",
-      "location": {
-        "latitude": -16.4897,
-        "longitude": -68.1193
-      },
-      "distanceKm": 1.42,
-      "isOpen": true,
-      "coverPhotoUrl": "/api/v1/photos/00000000-0000-4000-8000-000000000001"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 1,
-    "totalPages": 1
-  }
-}
-Notas: bbox es alternativo al radio; distancia nula cuando no existe centro.
-
-GET /api/v1/businesses/{slug}
-Request body: ninguno.
-Response 200 JSON:
-{
-  "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "slug": "restaurante-la-casona",
-  "tradeName": "La Casona",
-  "description": "Comida boliviana",
-  "publicationStatus": "published",
-  "branches": [
-    {
-      "id": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-      "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-      "businessSlug": "restaurante-la-casona",
-      "tradeName": "La Casona",
-      "name": "La Casona Centro",
-      "address": "Calle Ejemplo 123",
-      "location": {
-        "latitude": -16.4897,
-        "longitude": -68.1193
-      },
-      "distanceKm": 1.42,
-      "isOpen": true,
-      "coverPhotoUrl": "/api/v1/photos/00000000-0000-4000-8000-000000000001",
-      "territory": {
-        "id": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
-        "name": "La Paz",
-        "type": "municipality",
-        "codeIne": "020101"
-      },
-      "contacts": [
-        {
-          "type": "phone",
-          "value": "+591 2 2000000"
-        }
-      ],
-      "categories": [
-        {
-          "id": "c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111",
-          "name": "Restaurantes"
-        }
-      ],
-      "services": [
-        "Menu ejecutivo"
-      ],
-      "openingHours": [
-        {
-          "dayOfWeek": 1,
-          "open": "08:00",
-          "close": "22:00"
-        }
-      ],
-      "photos": [
-        {
-          "id": "00000000-0000-4000-8000-000000000001",
-          "url": "/api/v1/photos/00000000-0000-4000-8000-000000000001",
-          "isPrimary": true
-        }
-      ]
-    }
-  ]
-}
-Notas: No exponer legalName ni NIT por defecto.
-
-GET /api/v1/branches/{branchId}
-Request body: ninguno.
-Response 200 JSON:
-{
-  "id": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-  "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "businessSlug": "restaurante-la-casona",
-  "tradeName": "La Casona",
-  "name": "La Casona Centro",
-  "address": "Calle Ejemplo 123",
-  "location": {
-    "latitude": -16.4897,
-    "longitude": -68.1193
-  },
-  "distanceKm": 1.42,
-  "isOpen": true,
-  "coverPhotoUrl": "/api/v1/photos/00000000-0000-4000-8000-000000000001",
-  "territory": {
-    "id": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
-    "name": "La Paz",
-    "type": "municipality",
-    "codeIne": "020101"
-  },
-  "contacts": [
-    {
-      "type": "phone",
-      "value": "+591 2 2000000"
-    }
-  ],
-  "categories": [
-    {
-      "id": "c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111",
-      "name": "Restaurantes"
-    }
-  ],
-  "services": [
-    "Menu ejecutivo"
-  ],
-  "openingHours": [
-    {
-      "dayOfWeek": 1,
-      "open": "08:00",
-      "close": "22:00"
-    }
-  ],
-  "photos": [
-    {
-      "id": "00000000-0000-4000-8000-000000000001",
-      "url": "/api/v1/photos/00000000-0000-4000-8000-000000000001",
-      "isPrimary": true
-    }
-  ]
-}
-
-GET /api/v1/photos/{photoId}
-Request body: ninguno.
-Response 200: bytes de imagen; Content-Type image/jpeg|image/png|image/webp; ETag y Cache-Control.
-Notas: No es JSON: el cuerpo binario debe proceder de photo_data BYTEA.
-
-
-15.3 AUTENTICACION E IDENTIDAD [P1]
-===================================
-
-POST /api/v1/auth/register
-Request JSON:
-{
-  "email": "usuario@example.com",
-  "password": "ContrasenaSeguraDeEjemplo123!",
-  "firstName": "Carlos",
-  "lastName": "Mamani"
-}
-Response 201 JSON:
-{
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "usuario@example.com",
-    "firstName": "Carlos",
-    "lastName": "Mamani",
-    "roles": [
-      "User"
-    ]
-  },
-  "requiresEmailConfirmation": true
-}
-Notas: No entregar JWT hasta confirmar email si la politica exige confirmacion.
-
-POST /api/v1/auth/login
-Request JSON:
-{
-  "email": "usuario@example.com",
-  "password": "ContrasenaSeguraDeEjemplo123!"
-}
-Response 200 JSON:
-{
-  "accessToken": "JWT_DE_EJEMPLO",
-  "tokenType": "Bearer",
-  "expiresIn": 900,
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "usuario@example.com",
-    "firstName": "Carlos",
-    "lastName": "Mamani",
-    "roles": [
-      "User"
-    ]
-  }
-}
-Notas: Refresh token recomendado en cookie HttpOnly Secure; no incluirlo en JSON si se elige ese modelo.
-
-POST /api/v1/auth/refresh
-Request JSON:
-{}
-Response 200 JSON:
-{
-  "accessToken": "JWT_ROTADO_DE_EJEMPLO",
-  "tokenType": "Bearer",
-  "expiresIn": 900
-}
-Notas: Cookie HttpOnly con refresh token; rotar token y proteger CSRF segun despliegue.
-
-POST /api/v1/auth/logout
-Request JSON:
-{}
-Response 204: sin contenido.
-Notas: Revoca refresh token/familia de sesion y limpia cookie. El access token puede seguir vigente hasta expirar salvo control adicional.
-
-GET /api/v1/auth/me
-Request body: ninguno.
-Response 200 JSON:
-{
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "usuario@example.com",
-    "firstName": "Carlos",
-    "lastName": "Mamani",
-    "roles": [
-      "User"
-    ]
-  },
-  "isActive": true
-}
-
-
-15.4 PROPIETARIOS Y VINCULACION [P1]
-====================================
-
-POST /api/v1/owner/verification-requests
-Request JSON:
-{
-  "identityType": "person",
-  "documentType": "ci",
-  "documentLast4": "1234",
-  "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101"
-}
-Response 201 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000010",
-  "status": "pending",
-  "requestedAt": "2026-11-05T20:00:00Z"
-}
-Notas: Campos/evidencias sujetos a definicion de verificacion y privacidad; no almacenar evidencia sin politica.
-
-GET /api/v1/owner/verification-status
-Request body: ninguno.
-Response 200 JSON:
-{
-  "status": "pending",
-  "verifiedAt": null,
-  "requestId": "00000000-0000-4000-8000-000000000010"
-}
-
-GET /api/v1/owner/businesses
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-      "tradeName": "La Casona",
-      "publicationStatus": "published",
-      "roleInBusiness": "owner"
-    }
-  ]
-}
-
-POST /api/v1/owner/businesses
-Request JSON:
-{
-  "tradeName": "La Casona",
-  "legalName": "La Casona SRL",
-  "taxId": "1020304050",
-  "description": "Comida boliviana",
-  "branch": {
-    "name": "La Casona Centro",
-    "address": "Calle Ejemplo 123",
-    "territoryId": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
-    "location": {
-      "latitude": -16.4897,
-      "longitude": -68.1193
-    },
-    "categories": [
-      "c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111"
-    ],
-    "contacts": [
-      {
-        "type": "phone",
-        "value": "+591 2 2000000"
-      }
-    ]
-  }
-}
-Response 201 JSON:
-{
-  "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "slug": "restaurante-la-casona",
-  "publicationStatus": "published",
-  "branchId": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222"
-}
-Notas: Solo propietario verificado y facultado; para no verificados definir 403 o borrador pendiente en D-01.
-
-PATCH /api/v1/owner/businesses/{businessId}
-Request JSON:
-{
-  "description": "Comida tradicional boliviana"
-}
-Response 200 JSON:
-{
-  "id": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "description": "Comida tradicional boliviana",
-  "publicationStatus": "published"
-}
-
-POST /api/v1/owner/businesses/{businessId}/branches
-Request JSON:
-{
-  "name": "La Casona Sur",
-  "address": "Av. Ejemplo 456",
-  "territoryId": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
-  "location": {
-    "latitude": -16.52,
-    "longitude": -68.12
-  },
-  "categories": [
-    "c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111"
-  ]
-}
-Response 201 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000020",
-  "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "status": "active"
-}
-
-PATCH /api/v1/owner/branches/{branchId}
-Request JSON:
-{
-  "address": "Av. Actualizada 321",
-  "location": {
-    "latitude": -16.4897,
-    "longitude": -68.1193
-  }
-}
-Response 200 JSON:
-{
-  "id": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-  "address": "Av. Actualizada 321",
-  "location": {
-    "latitude": -16.4897,
-    "longitude": -68.1193
-  }
-}
-
-GET /api/v1/admin/owner-verifications
-Parametros URL: status=pending&page=1&pageSize=20
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "id": "00000000-0000-4000-8000-000000000010",
-      "userId": "550e8400-e29b-41d4-a716-446655440000",
-      "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-      "status": "pending"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 1,
-    "totalPages": 1
-  }
-}
-
-PATCH /api/v1/admin/owner-verifications/{requestId}/approve
-Request JSON:
-{
-  "reason": "Documentacion validada"
-}
-Response 200 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000010",
-  "status": "approved",
-  "resolvedAt": "2026-11-05T20:10:00Z"
-}
-
-PATCH /api/v1/admin/owner-verifications/{requestId}/reject
-Request JSON:
-{
-  "reason": "Informacion insuficiente"
-}
-Response 200 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000010",
-  "status": "rejected",
-  "resolvedAt": "2026-11-05T20:10:00Z"
-}
-
-GET /api/v1/admin/businesses/{businessId}/owners
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "userId": "550e8400-e29b-41d4-a716-446655440000",
-      "verified": true,
-      "revokedAt": null
-    }
-  ]
-}
-
-POST /api/v1/admin/businesses/{businessId}/owners
-Request JSON:
-{
-  "userId": "550e8400-e29b-41d4-a716-446655440000",
-  "ownershipType": "owner"
-}
-Response 201 JSON:
-{
-  "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "userId": "550e8400-e29b-41d4-a716-446655440000",
-  "revokedAt": null
-}
-Notas: No aceptar permisos autodeclarados por el propietario.
-
-DELETE /api/v1/admin/businesses/{businessId}/owners/{userId}
-Request body: ninguno.
-Response 204: sin contenido.
-Notas: Revocar vinculacion, no borrar usuario ni historico.
-
-
-15.5 FOTOGRAFIAS DE SUCURSALES [P1]
-===================================
-
-POST /api/v1/owner/branches/{branchId}/photos
-Content-Type request: multipart/form-data
-Request: multipart/form-data: file=<imagen binaria>, isPrimary=true, sortOrder=0
-Response 201 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000001",
-  "branchId": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-  "url": "/api/v1/photos/00000000-0000-4000-8000-000000000001",
+  "location": {"type": "Point", "coordinates": [-68.1193, -16.4897]},
+  "status": "active",
   "isPrimary": true,
-  "sortOrder": 0
+  "priceLevel": 2,
+  "minPriceBob": null,
+  "maxPriceBob": null,
+  "categoryIds": ["c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111"],
+  "serviceIds": [],
+  "featureIds": [],
+  "paymentMethodIds": [],
+  "contacts": [{"type": "phone", "value": "+59122000000"}],
+  "hoursKnown": true,
+  "openingHours": [{"weekday": 1, "opensAt": "08:00", "closesAt": "18:00"}],
+  "hourOverrides": []
 }
-Notas: Rechazar MIME/firma o tamaño invalido; no usar JSON base64.
+```
+Point exactamente dos coordenadas, type Point y persistir SRID4326. Rango SQL
+lng -70..-57, lat -23.5..-9 prefiltra, NO prueba frontera. territoryId municipio
+o descendiente activo con ancestros activos. Municipio ancestro debe tener
+boundary válido con procedencia y cubrir punto ST_Covers; si hoja tiene boundary
+también debe cubrir. Sin municipio confiable ->400 por territorio, no simular
+certeza. Carga territorial es P0. Guardar territorio elegido; ajustar trigger
+para no reemplazarlo al mover punto dentro del territorio seleccionado.
+18 alta dentro de negocio, límites activo100/histórico500.19 reemplazo completo,
+no cambia business_id. Exactamente una principal entre NO eliminadas de negocio
+vigente. isPrimary=true desmarca anterior bajo bloqueo; false a actual sin
+reemplazo ->409. Cambiar principal guardando nueva con true, no dos solicitudes.
+20 baja lógica. Última NO eliminada ->409 aunque cerrada comercialmente. Bloqueo
+padre serializa dos bajas. Si principal, asignar restante primera createdAt,id.
+Si published queda sin sucursal visible ->409; retirar publicación antes. Ya baja,
+negocio vigente y ETag correcto ->204. M/P2 también puede baja sucursal propia.
+21 Admin y negocio vigente: restaurar sucursal, validar referencias/punto y
+publicación. Ya vigente ->200 sin cambio. No principal si existe otra. Fotos
+activas vuelven según publicación, no restaura negocio implícitamente.
 
-PATCH /api/v1/owner/branches/{branchId}/photos/{photoId}/primary
-Request JSON:
-{}
-Response 200 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000001",
-  "isPrimary": true
-}
-Notas: Debe desmarcar otra portada en la misma transaccion.
+PUT colecciones, sin DELETE físico:
+- Relaciones IDs: ausentes active=false, presentes upsert active=true por PK.
+- Contactos: comparar por tipo; value distinto baja anterior y alta nueva con
+  is_primary=true. Un activo/tipo, máximo6; no borrar historia.
+- Semanales: desactivar turnos anteriores e insertar/reactivar coincidencias.
+  hoursKnown=false requiere [];true con [] cierre habitual.
+- Excepciones: reemplaza calendario editable ayer..hoy+365 inclusive, misma
+  ventana de GET; anteriores se conservan sin enviarse en input. Fuera ventana
+  ->400. Omitidas se desactivan con nueva columna active, upsert por fecha.
+  No borrar por trigger físico. La ventana se evalúa al guardar con hora servidor;
+  ante cruce de día devolver400 para recargar calendario y conservar formulario.
+Todas las colecciones, revisión y auditoría en una sola transacción.
 
-PATCH /api/v1/owner/branches/{branchId}/photos/{photoId}/order
-Request JSON:
-{
-  "sortOrder": 2
-}
-Response 200 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000001",
-  "sortOrder": 2
-}
+9. FOTOS Y PREVISUALIZACIÓN
 
-DELETE /api/v1/owner/branches/{branchId}/photos/{photoId}
-Request body: ninguno.
-Response 204: sin contenido.
-Notas: Baja logica; verificar si requiere nueva foto principal.
+22 multipart campos:file (un archivo),altText opcional<=300,ausente/vacío null;
+isPrimary true/false obligatorio,sortOrder entero0..999 obligatorio. Sin partes
+extra, URL remota ni base64. JPEG/PNG/WebP,1..5242880 bytes,20 activas/sucursal.
+Decodificar realmente; rechazar animadas, corruptas, dimensiones fuera64..8192
+por eje o>24 megapíxeles. Reencodificar mismo formato quitando EXIF/GPS y volver
+a comprobar<=5MiB. No guardar rutas/filename cliente; filename null. Sin cambio
+oculto de dimensiones.413 bytes;415 formato;400 corrupta/dimensiones/metadatos.
+El trigger de firma no sustituye decodificador. Elegir biblioteca .NET compatible
+con despliegue Linux y licencia de la organización, sin cambiar stack.
+PhotoInput={altText:string?,isPrimary:bool,sortOrder:int},todo requerido.
+23 solo metadatos/portada; para cambiar bytes cargar nueva y dar baja anterior.
+Primera foto siempre principal aunque false; posteriores true cambian portada
+atómicamente. No false a portada sin sustituta ->409. sortOrder admite empates,
+orden id; no rutas separadas /primary y /order.
+24 baja lógica, si portada asignar primera restante sortOrder,id; si no quedan,
+portada null. Ya baja ->204 con ETag correcto.
+06 sin query: leer bytes solo aquí. Anónimo solo activa y padre/sucursal visibles.
+Con Bearer M puede activa de borrador propio; Admin también de negocio/sucursal
+eliminados. Foto eliminada individualmente siempre404. No autorizado404;
+JWT presente inválido401. Sin token en query ni URLs firmadas.
+200 MIME real,Content-Length,X-Content-Type-Options:nosniff,
+Content-Disposition:inline,Cache-Control:no-store. Sin ETag/304 de imagen.
+Preview privada fetch Bearer y Blob URL; liberar URL al desmontar componente.
 
+10. AUDITORÍA Y SALUD
 
-15.6 FAVORITOS Y RESENAS [P2]
-=============================
+25 query:entity opcional business|branch|branch_photo|business_owner|
+owner_identity|branch_contact|opening_hour|branch_hour_override|branch_category|
+branch_service|branch_feature|branch_payment. entityId UUID opcional exige entity;
+from/to ISO UTC opcionales, juntos si alguno presente, from<=to, máximo366 días;
+page/pageSize. Sin fechas últimos30 días UTC hasta ahora. Rango [from,to].
+entityId identifica PK UUID; relaciones compuestas usan branch_id; owner_identity
+usa user_id. Orden changedAt DESC,id DESC. Nunca old_value/new_value por HTTP.
+AuditEntry={id:string,entitySchema:string,entityTable:string,entityKey:string,
+ operation:"I"|"U"|"D",actorUserId:UUID?,changedAt:Instant}.
+id BIGINT decimal string. Actor null solo histórico; nuevos cambios requieren
+actor. Baja/restauración son U. No dashboard ni métricas.
+Health={status:"ok"|"unavailable"}.
+26 /health proceso sin DB ->200 ok.27 /health/ready comprueba conexión/extensiones
+y versión de esquema esperada ->200 ok, si no503 unavailable. Excepción explícita
+a ProblemDetails para salud no lista. Sin conexiones/versiones exactas ni stack.
+Rutas sin auth, /api/v1/health y /api/v1/health/ready. Compose deberá usar ready;
+pg_isready no comprueba aplicación/esquema. No dependen de negocios de prueba.
 
-GET /api/v1/favorites
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "branchId": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-      "tradeName": "La Casona",
-      "createdAt": "2026-11-05T20:00:00Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 1,
-    "totalPages": 1
-  }
-}
+11. PROPIETARIOS [P2]
 
-PUT /api/v1/favorites/{branchId}
-Request body: ninguno.
-Response 200 JSON:
-{
-  "branchId": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-  "isFavorite": true
-}
-Notas: Sin request body; idempotente, retorna 200 tanto si ya existia como si se reactivo.
+Registro28 §3. Sin solicitudes, evidencias, documentos de identidad ni reclamos.
+Admin verifica por contacto comercial conocido o entrevista con titular, no basta
+email/autodeclaración. Asocia al usuario por email exacto registrado y activo.
+OwnerInput={email:string,verificationMethod:"business_contact"|"in_person"}.
+30 PUT busca email normalizado; inexistente/inactivo ->400 email. Sin listado
+general de usuarios. Bloquear usuario afectado y actor en orden UUID, después
+business. Upsert owner_identity/business_owner,verified_at=ahora,revoked_at=null,
+identity.expires_at=null,verified_by=Admin; rol BusinessOwner, conservar User.
+Todo atómico. Identidad global verificada no otorga otros negocios; se requiere
+vínculo específico. No publica. Nuevo/reactivado ->200; vigente sin cambios
+retorna200 sin alterar fecha/revisión. Negocio eliminado409.
+Owner={userId:UUID,email:string,firstName:string,lastName:string,
+ verificationMethod:string,verifiedAt:Instant,revokedAt:Instant?}.
+Fechas del vínculo, método actual de owner_identity.29 OwnerList={items:Owner[]},
+incluye revocadas;email,userId. Máximo20 asociaciones históricas por negocio;
+21ª ->409, se permite reactivar existente. Privada sin paginación, ETag padre.
+31 DELETE vínculo: revoked_at=ahora, no borrar usuario/identidad ni otros vínculos.
+Ya revocado204,inexistente404. No hace falta quitar rol para denegar: DB manda.
+Revocación tras commit deniega nuevas ediciones; locks de usuario/business en
+mismo orden que edición. Operador de desactivación/identidad también los usa.
 
-DELETE /api/v1/favorites/{branchId}
-Request body: ninguno.
-Response 204: sin contenido.
-Notas: Idempotente; baja logica por clave compuesta usuario + sucursal.
+Permiso M/P2: activo,rol BusinessOwner,owner_identity verificada no revocada,
+expires_at null o>ahora,vínculo verificado no revocado,negocio vigente.
+Admin todas operaciones. Propietario IDs11..14,18..20,22..24 y preview06;
+NO15..17/21/25/29..31. Alta12 basta identidad vigente, crea vínculo atómico.
+No editar taxId/legalName. Edición publicada entra directamente con validaciones
+y auditoría; no sistema editorial adicional. Admin puede retirarla.
 
-GET /api/v1/branches/{branchId}/reviews
-Parametros URL: page=1&pageSize=10
-Request body: ninguno.
-Response 200 JSON:
-{
-  "summary": {
-    "average": 5.0,
-    "total": 1,
-    "distribution": {
-      "1": 0,
-      "2": 0,
-      "3": 0,
-      "4": 0,
-      "5": 1
-    }
-  },
-  "items": [
-    {
-      "id": "a1b2c3d4-1111-4444-8888-222222222222",
-      "branchId": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-      "rating": 5,
-      "title": "Muy buena atencion",
-      "body": "El servicio fue rapido.",
-      "moderationStatus": "visible",
-      "createdAt": "2026-11-05T20:00:00Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 10,
-    "totalItems": 1,
-    "totalPages": 1
-  }
-}
+12. PERSISTENCIA Y CAMBIOS NECESARIOS [P0/P1]
 
-POST /api/v1/branches/{branchId}/reviews
-Request JSON:
-{
-  "rating": 5,
-  "title": "Muy buena atencion",
-  "body": "El servicio fue rapido."
-}
-Response 201 JSON:
-{
-  "id": "a1b2c3d4-1111-4444-8888-222222222222",
-  "branchId": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-  "rating": 5,
-  "title": "Muy buena atencion",
-  "body": "El servicio fue rapido.",
-  "moderationStatus": "visible",
-  "createdAt": "2026-11-05T20:00:00Z"
-}
-Notas: Se permiten varias reseñas del mismo usuario; mitigar spam sin unicidad de usuario-sucursal.
+Fuente inspeccionada:db/init/01_schema.sql, no un SQL externo v1.3.
+Estos son cambios A IMPLEMENTAR, no migraciones ejecutadas por esta revisión.
 
-PATCH /api/v1/reviews/{reviewId}
-Request JSON:
-{
-  "rating": 4,
-  "body": "Actualizo mi experiencia."
-}
-Response 200 JSON:
-{
-  "id": "a1b2c3d4-1111-4444-8888-222222222222",
-  "branchId": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-  "rating": 4,
-  "title": "Muy buena atencion",
-  "body": "Actualizo mi experiencia.",
-  "moderationStatus": "visible",
-  "createdAt": "2026-11-05T20:00:00Z"
-}
-Notas: Condicionado a politica D-05; solo autor.
+12.1 Línea base y seguridad
+- 01_schema.sql YA incluye Identity/__EFMigrationsHistory. No ejecutar
+  backend/Data/Migrations/IdentityMigration.sql encima: incluye dominio y colisiona.
+- Incrementos SQL numerados con checksum en tabla control a incorporar
+  (version text PK,checksum text,applied_at timestamptz). Aplicar una vez mediante
+  psql ON_ERROR_STOP durante mantenimiento/transacción. Base nueva=baseline+
+  pendientes; existente inventariar antes de registrar baseline. Sin DbUp/Flyway
+  obligatorio ni EnsureCreated/Migrate en arranque.
+- Un AppDbContext Identity Guid/Database First; personalizaciones partial.
+  Funciones/triggers/índices versionados fuera de scaffold, sin segundo contexto.
+- Cuenta DB API sin superusuario/DDL/TRUNCATE; permisos explícitos solo tablas de
+  alcance. No escribir audit_log directamente: trigger con propietario restringido,
+  search_path seguro, sin escalada de SQL dinámico. Sin acceso API a módulos
+  anuncios/eventos/importaciones. Dominio no permite DELETE; sesiones sí permiten
+  limpieza privada de filas vencidas. No otorgar DELETE amplio a API.
+- Actor transaccional según app.actor() y clave real de línea base; no confiar
+  en parámetros actor/p_is_admin del cliente. Autorización siempre backend.
 
-DELETE /api/v1/reviews/{reviewId}
-Request body: ninguno.
-Response 204: sin contenido.
-Notas: Solo autor o administrador; baja logica.
+12.2 Integridad y lectura
+- business.revision bigint>=1 DEFAULT1, una revisión por cambio efectivo.
+  Locks usuario/business en orden uniforme y triggers diferidos de sucursal mínima.
+- BRANCH_PRIMARY_ONE_IDX/PHOTO_PRIMARY_ONE_IDX están COMENTADOS. Resolver duplicados
+  eligiendo primera createdAt,id para sucursal o sortOrder,id para foto. Asignar
+  una cuando no hay principal en colección activa no vacía. Habilitar UNIQUE
+  parcial por business_id/branch_id con is_primary y deleted_at NULL. API asegura
+  exactamente una, índice máximo una.
+- Contacto único parcial (branch_id,contact_type) con deleted_at NULL. Revisar
+  duplicados reales, bajar extras con auditoría y conservar historia.
+- Añadir branch.hours_known boolean NOT NULL DEFAULT false; backfill true con
+  horarios activos, false sin ellos. Permite declarar cierre explícito sin turnos.
+- Añadir branch_hour_override.active boolean DEFAULT true NOT NULL; consultas
+  ignoran inactivas y conservan UNIQUE branch/fecha. Upsert, no DELETE físico.
+- Corregir app.is_open_at: cierre de fecha completa anula arrastre; proyección
+  nullable según hours_known/excepciones. Reutilizar evaluación §6 en openNow.
+- AUTO_TERRITORY solo resuelve si falta territorio; no sustituir explícito válido
+  cuando cambia location. API siempre valida y envía territorio.
+- Auditoría adicional contactos/horas/relaciones; clave branch_id para compuestas.
+  Ningún snapshot duplica BYTEA ni material de autenticación.
+- Legacy pending/rejected pasa a draft auditado, sin perder contenido. Archived
+  no eliminado pasa a draft; archived queda solo para baja. Publicados sin punto
+  territorial validado pasan draft hasta corregir. Inventariar y corregir datos
+  que excedan límites de esta especificación antes de habilitar rutas nuevas.
 
-POST /api/v1/owner/reviews/{reviewId}/reply
-Request JSON:
-{
-  "body": "Gracias por visitarnos."
-}
-Response 201 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000030",
-  "reviewId": "a1b2c3d4-1111-4444-8888-222222222222",
-  "body": "Gracias por visitarnos.",
-  "createdAt": "2026-11-05T20:05:00Z"
-}
+12.3 Sesiones Identity
+- UNIQUE NormalizedEmail tras revisar duplicados; EmailIndex actual no es único.
+- app.auth_session:id UUID PK (sid),user_id UUID FK public.AspNetUsers,
+  created_at timestamptz,expires_at timestamptz (=creado+30d),revoked_at nullable;
+  CHECK expires>created. FK real con nombre entrecomillado de Identity.
+- app.refresh_token:id UUID PK,session_id UUID FK auth_session,token_hash bytea
+  UNIQUE32 bytes SHA256,created_at timestamptz,consumed_at nullable; índice session_id.
+  Sin valor claro ni hashes en auditoría. Reuso bloquea/revoca familia.
+- Limpieza privada de familias vencidas y sus tokens tras expiración absoluta;
+  no aplica trigger de prohibición física del dominio a estas tablas efímeras.
+- owner_identity/actores YA UUID: no migración genérica TEXT->UUID. Verificar
+  referencias existentes antes de agregar FK faltantes a Identity; usuarios por
+  desactivación, no borrado físico que rompa historia.
 
-PATCH /api/v1/admin/reviews/{reviewId}/moderate
-Request JSON:
-{
-  "status": "hidden",
-  "reason": "Contenido inapropiado"
-}
-Response 200 JSON:
-{
-  "reviewId": "a1b2c3d4-1111-4444-8888-222222222222",
-  "moderationStatus": "hidden",
-  "moderatedAt": "2026-11-05T20:10:00Z"
-}
-Notas: Estados visibles en DB: visible/flagged/hidden; no usar rejected/pending.
+12.4 Búsqueda, datos y fotos
+- branch.location geography(Point,4326);territory.boundary geography(MultiPolygon,
+  4326) nullable. Bbox SQL de altas no certifica frontera.
+- app.find_branches YA recibe p_territory_id. Orden patrocinado/proyección reseñas
+  no es el contrato. Implementar consulta EF/SQL parametrizada específica con
+  count/filtros idénticos y sin consultar anuncios/reseñas. Mantener GIST/trigram;
+  validar EXPLAIN con datos representativos, no exigir índice en tablas mínimas.
+- Catálogos/departamentos/provincias/municipios con fuente,versión,fecha de carga;
+  SRID/validez/jerarquía/cobertura comprobados. Sin barrios inventados. Zona/barrio
+  sin boundary es admisible bajo municipio válido y selección manual verificada.
+- Festivos por scripts con procedencia y año revisado, sin inventar calendario.
+- app.create_business_with_branch publica directo: adaptar a draft o transacción
+  equivalente. Función SQL no autoriza automáticamente llamada HTTP.
+- app.add_photo/set_primary_photo usan actor/admin derivados del servidor; locks
+  padre y desmarcar portada anterior antes de marcar nueva para índice único.
+  Elegir decodificador .NET compatible y comprobar límites §9 antes de persistir.
 
-GET /api/v1/admin/reviews
-Parametros URL: moderationStatus=flagged&page=1&pageSize=20
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "id": "a1b2c3d4-1111-4444-8888-222222222222",
-      "branchId": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-      "rating": 5,
-      "title": "Muy buena atencion",
-      "body": "El servicio fue rapido.",
-      "moderationStatus": "flagged",
-      "createdAt": "2026-11-05T20:00:00Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 1,
-    "totalPages": 1
-  }
-}
+13. FRONTEND Y CRITERIOS DE TERMINADO
 
+Páginas P1: / buscador,/businesses/[slug] ficha,/login,/management listado,
+/management/businesses/new y /management/businesses/[id] edición,/admin/audit.
+P2 agrega /register y asignación dentro de ficha administrativa. Sin panel de
+reclamos/verificación adicional. Nuxt app/pages/componentes/composables; mapa
+cliente Leaflet con teselas/atribución configuradas por entorno. Sin router manual.
+Producción un origen HTTPS, proxy /api/v1 al backend, resto Nuxt. Base pública
+runtimeConfig.public.apiBase; base SSR privada configurable, accesible en red.
+Sesión solo cliente para paneles privados; SSR público no necesita credenciales.
 
-15.7 PANEL Y METRICAS [P2]
-==========================
+Filtros en URL; cambio reinicia page1. Un GET GeoJSON alimenta lista y mapa.
+Mostrar total/página, no todos los marcadores. Radio en metros/API, km/interfaz;
+no distancia0 si null. Buscar en esta zona elimina centro/radio y usa bbox.
+Permiso geográfico denegado permite pin/municipio. Lista funciona sin teselas.
+Llegada externa:https://www.google.com/maps/dir/?api=1&destination=lat,lng;
+no origen del visitante, sin rutas propias. Links externos seguros en nueva pestaña.
 
-GET /api/v1/admin/dashboard
-Request body: ninguno.
-Response 200 JSON:
-{
-  "businesses": {
-    "published": 120,
-    "draft": 8
-  },
-  "branches": 160,
-  "reviews": {
-    "visible": 380,
-    "flagged": 5
-  },
-  "period": {
-    "from": "2026-10-01",
-    "to": "2026-10-31"
-  },
-  "profileViews": 5400
-}
-Notas: Cifras ilustrativas; no equivalen a ventas reales.
+Formularios PUT cargan GET13 y construyen DTO entrada, no reenvían salida como
+body. Guardar ETag;412 conserva formulario y ofrece recargar, no sobrescribir.
+400 muestra errores por campo;401 intenta un único refresh compartido salvo
+auth; si falla login. Sin reintentar mutaciones si resultado de red incierto:
+volver a consultar primero. Protección Nuxt no sustituye API. Móvil/teclado,
+carga/vacío/error y formatos monetarios/horarios legibles son parte de entrega.
 
-GET /api/v1/owner/businesses/{businessId}/metrics
-Parametros URL: from=2026-10-01&to=2026-10-31
-Request body: ninguno.
-Response 200 JSON:
-{
-  "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "period": {
-    "from": "2026-10-01",
-    "to": "2026-10-31"
-  },
-  "metrics": {
-    "profileViews": 1250,
-    "contactClicks": 84,
-    "directionsClicks": 112,
-    "favorites": 58
-  },
-  "daily": [
-    {
-      "date": "2026-10-01",
-      "profileViews": 45,
-      "contactClicks": 3
-    }
-  ]
-}
+Pruebas obligatorias con PostgreSQL18/PostGIS real:
+- Todas las rutas/métodos/DTO/cabeceras/permisos/límites; OpenAPI con esquemas
+  concretos JSON,GeoJSON,multipart,binarios,ProblemDetails e If-Match/ETag.
+  Verificar inventario de 27 operaciones MVP y 31 en P2, no rutas duplicadas ni funciones sin interfaz.
+- Mismos IDs/orden/paginación JSON/GeoJSON,[lng,lat],metros1/10000/50000,
+  bbox/bordes,centro+bbox400,descendientes,count sin duplicados,offset>2000.
+- Atomicidad,última sucursal concurrente,principales concurrentes,ETag obsoleto,
+  baja/restauración selectiva sin resucitar fotos o sucursales no elegidas.
+- Ocultamiento consistente por publicación/baja/cierre permanente,temporal
+  visible con isOpen=false,datos privados ausentes de respuestas públicas.
+- Horario desconocido,cierre semanal explícito,turnos nocturnos,domingo,
+  festivo/override abierto,cierre de hoy que anula arrastre de ayer.
+- Rotación/reuso/logout/CSRF,CORS,IsActive/lockout,propietario A no edita B,
+  no se asigna privilegios/publicación,revocación efectiva tras commit.
+- Firma foto falsa,corrupta/dimensiones/tamaño,EXIF eliminado,límite fotos,
+  portada y preview autorizado; geolocalización denegada y teselas caídas.
+Compilar no sustituye aceptación. No afirmar pruebas aprobadas por este texto.
+Esta revisión modifica documentación; SQL,backend y frontend siguen pendientes.
 
-GET /api/v1/admin/audit-logs
-Parametros URL: page=1&pageSize=20&entity=business
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "id": 123,
-      "entitySchema": "app",
-      "entityTable": "business",
-      "operation": "UPDATE",
-      "actorUserId": "550e8400-e29b-41d4-a716-446655440000",
-      "changedAt": "2026-11-05T20:00:00Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 1,
-    "totalPages": 1
-  }
-}
-Notas: No incluir valores sensibles ni BYTEA.
+14. REFERENCIAS NORMATIVAS
 
+GeoJSON:https://www.rfc-editor.org/rfc/rfc7946
+ProblemDetails:https://www.rfc-editor.org/rfc/rfc9457
+Metros/consulta espacial:https://postgis.net/docs/ST_DWithin.html
 
-15.8 IMPORTACIONES [P2]
-=======================
+15. REGLAS COMPLEMENTARIAS PARA IMPLEMENTACIÓN SIN AMBIGÜEDAD
 
-POST /api/v1/admin/imports
-Content-Type request: multipart/form-data
-Request: multipart/form-data: file=<archivo CSV o XLSX>
-Response 201 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000011",
-  "status": "uploaded",
-  "totalRows": 50
-}
-Notas: Validar extension, estructura, firma MIME y tamaño configurado.
-
-GET /api/v1/admin/imports/{batchId}
-Request body: ninguno.
-Response 200 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000011",
-  "status": "review",
-  "totalRows": 50,
-  "pendingRows": 3,
-  "acceptedRows": 47,
-  "rejectedRows": 0
-}
-
-GET /api/v1/admin/imports/{batchId}/rows
-Parametros URL: decision=pending&page=1&pageSize=20
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "id": 1001,
-      "rowNumber": 1,
-      "tradeName": "Negocio Importado",
-      "decision": "pending",
-      "possibleDuplicateBusinessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 1,
-    "totalPages": 1
-  }
-}
-
-PATCH /api/v1/admin/imports/{batchId}/rows/{rowId}/decision
-Request JSON:
-{
-  "decision": "accept",
-  "reason": "No es duplicado"
-}
-Response 200 JSON:
-{
-  "id": 1001,
-  "decision": "accept",
-  "reviewedAt": "2026-11-05T20:10:00Z"
-}
-Notas: Valores de decision de ejemplo; ajustarlos a CHECK/enum real de la tabla.
-
-POST /api/v1/admin/imports/{batchId}/apply
-Request JSON:
-{}
-Response 200 JSON:
-{
-  "batchId": "00000000-0000-4000-8000-000000000011",
-  "status": "applied",
-  "createdBusinesses": 10,
-  "createdBranches": 12,
-  "skippedRows": 3
-}
-Notas: Idempotencia para reintentos; no aplicar pendientes o duplicados dudosos.
-
-
-15.9 PUBLICIDAD [P2]
-====================
-
-GET /api/v1/admin/ads
-Parametros URL: status=draft&page=1&pageSize=20
-Request body: ninguno.
-Response 200 JSON:
-{
-  "items": [
-    {
-      "id": "00000000-0000-4000-8000-000000000012",
-      "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-      "branchId": null,
-      "slot": "search",
-      "status": "draft",
-      "paymentStatus": "pending",
-      "amountBob": 350.0,
-      "startsAt": "2026-11-06T00:00:00Z",
-      "endsAt": "2026-12-06T00:00:00Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 1,
-    "totalPages": 1
-  }
-}
-
-POST /api/v1/admin/ads
-Request JSON:
-{
-  "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "branchId": null,
-  "slot": "search",
-  "amountBob": 350.0,
-  "startsAt": "2026-11-06T00:00:00Z",
-  "endsAt": "2026-12-06T00:00:00Z"
-}
-Response 201 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000012",
-  "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "branchId": null,
-  "slot": "search",
-  "status": "draft",
-  "paymentStatus": "pending",
-  "amountBob": 350.0,
-  "startsAt": "2026-11-06T00:00:00Z",
-  "endsAt": "2026-12-06T00:00:00Z"
-}
-Notas: slot y estados deben corresponder al CHECK de la DB; pago no se marca como paid por solicitud cliente.
-
-PATCH /api/v1/admin/ads/{adId}
-Request JSON:
-{
-  "endsAt": "2026-12-20T00:00:00Z"
-}
-Response 200 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000012",
-  "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-  "branchId": null,
-  "slot": "search",
-  "status": "draft",
-  "paymentStatus": "pending",
-  "amountBob": 350.0,
-  "startsAt": "2026-11-06T00:00:00Z",
-  "endsAt": "2026-12-20T00:00:00Z"
-}
-
-PATCH /api/v1/admin/ads/{adId}/activate
-Request JSON:
-{}
-Response 200 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000012",
-  "status": "active",
-  "paymentStatus": "paid"
-}
-Notas: Activar solo si servidor verifico pago, vigencia y contenido publicado; no inferir pago de JSON.
-
-PATCH /api/v1/admin/ads/{adId}/pause
-Request JSON:
-{
-  "reason": "Solicitud del anunciante"
-}
-Response 200 JSON:
-{
-  "id": "00000000-0000-4000-8000-000000000012",
-  "status": "paused"
-}
-Notas: Verificar equivalencia con estados definidos en DB.
-
-GET /api/v1/admin/ads/{adId}/metrics
-Parametros URL: from=2026-11-06&to=2026-12-06
-Request body: ninguno.
-Response 200 JSON:
-{
-  "adId": "00000000-0000-4000-8000-000000000012",
-  "period": {
-    "from": "2026-11-06",
-    "to": "2026-12-06"
-  },
-  "impressions": 1000,
-  "clicks": 38,
-  "ctrPercent": 3.8
-}
-
-
-15.10 RESPUESTAS TRANSVERSALES DE ERROR [P0]
-============================================
-
-400 - validation:
-{
-  "type": "about:blank",
-  "title": "Datos invalidos",
-  "status": 400,
-  "traceId": "00-00000000000000000000000000000000-0000000000000000-01",
-  "errors": {
-    "radiusKm": [
-      "Debe ser mayor que 0."
-    ]
-  }
-}
-
-401 - unauthorized:
-{
-  "type": "about:blank",
-  "title": "No autenticado",
-  "status": 401,
-  "traceId": "00-00000000000000000000000000000000-0000000000000000-01"
-}
-
-403 - forbidden:
-{
-  "type": "about:blank",
-  "title": "Acceso denegado",
-  "status": 403,
-  "traceId": "00-00000000000000000000000000000000-0000000000000000-01"
-}
-
-404 - not found:
-{
-  "type": "about:blank",
-  "title": "Recurso no encontrado",
-  "status": 404,
-  "traceId": "00-00000000000000000000000000000000-0000000000000000-01"
-}
-
-409 - conflict:
-{
-  "type": "about:blank",
-  "title": "Conflicto de datos",
-  "status": 409,
-  "traceId": "00-00000000000000000000000000000000-0000000000000000-01",
-  "detail": "El slug ya se encuentra registrado."
-}
-
-429 - too many requests:
-{
-  "type": "about:blank",
-  "title": "Demasiadas solicitudes",
-  "status": 429,
-  "traceId": "00-00000000000000000000000000000000-0000000000000000-01"
-}
-
-NOTAS FINALES DE VALIDACION:
-- Las respuestas ilustrativas contienen campos propuestos, no verificados
-  contra la totalidad de columnas y CHECK del esquema fisico actual.
-- Para crear/editar campos de status, slot, tipo de documento y decisiones,
-  verificar sus literales reales en PostgreSQL antes de programar DTOs.
-- La existencia de un endpoint en P2 no lo convierte en requisito del MVP P1.
-- Actualizar OpenAPI y pruebas de contrato conforme a las decisiones D-01..D-08.
-
-FIN DEL DOCUMENTO
+- Todo ID de catálogo de BranchInput debe existir y estar activo; no se acepta
+  categoría con ancestro inactivo. Territorio también requiere ancestros activos.
+  Lecturas públicas solo muestran referencias activas. Mantenimiento de catálogo
+  debe corregir/despublicar fichas afectadas en la misma transacción de baja.
+- Las mutaciones de sucursal/foto sobre negocio eliminado devuelven 409, salvo
+  baja ya efectuada que puede devolver 204 con revisión vigente; restaurar primero
+  el negocio. Sobre sucursal eliminada no se permiten PUT/carga/edición de fotos
+  (409); solo preview Admin y restauración21. Alta18 nunca sobre padre eliminado.
+- El precio y status que devuelve ManagedBranch.input son propios, no efectivos.
+  Si published, cambiar sucursal a permanently_closed puede dejarla invisible;
+  si era la última visible, se rechaza409. Siempre se puede retirar publicación
+  primero. No confundir baja lógica con cierre comercial.
+- Lectura de una foto de negocio publicado pero sucursal temporalmente cerrada
+  sigue siendo pública; si permanente o eliminada, requiere permiso de preview.
+- Al crear/modificar Override.reason, vacío se normaliza null. description también
+  admite null en borrador; publicación exige texto no vacío. Contact.value siempre
+  no vacío. sortOrder de catálogos es entero; sus longitudes se limitan al SQL
+  (code50 y name150); territory name150 y codeIne30; Holiday.name150.
+- Los límites se aplican tanto en API como en el formulario. No aceptar horas
+  con segundos, fechas locales en timestamps UTC ni números de dinero con más
+  de dos decimales. Nuxt convierte campos vacíos nullable a null antes de enviar.
+- No se aceptan query en rutas sin query declarada; las fotos no tienen sufijos
+  de tamaño/transformación. HEAD/OPTIONS técnicos del servidor no agregan rutas
+  funcionales al inventario. Health solo produce su JSON declarado.
+- Las respuestas 201 de sucursal/foto contienen el agregado completo. La cabecera
+  X-Created-Resource-Id identifica el recurso nuevo aunque el orden de colección
+  cambie; no deducirlo por posición ni asumir la primera fila.
+- La autorización y If-Match se comprueban antes de aplicar cambios. En una
+  transacción de edición se vuelve a comprobar permiso bajo locks. Cuando varios
+  usuarios se bloquean (asignación), bloquearlos en orden UUID antes del negocio.
+  La revocación de identidad por mantenimiento revoca además todos sus vínculos,
+  bloqueando negocios en orden UUID y aumentando sus revisiones; una verificación
+  posterior no debe reactivar vínculos antiguos de otros negocios por accidente.
+- La revisión del esquema esperada por ready se configura por versión del
+  backend desplegado y se compara con la tabla de control de migraciones; nunca
+  se aplican incrementos por petición de salud. Antes de incrementos realizar
+  copia y ensayo de restauración; errores abortan toda migración.
+- Versionar OpenAPI generado con los nombres de tipos de este documento y
+  mantenerlo en la misma revisión que frontend/backend. Las definiciones de
+  tipos anteriores son normativas; no usar diccionarios libres para suplir DTO.
