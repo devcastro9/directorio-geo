@@ -2,7 +2,7 @@
 
 Nuxt 4, Vue 3 y TypeScript; pnpm 12.16.1 y lockfile existente. Actualmente muestra `NuxtWelcome` y no consume la API. No hay script de pruebas.
 
-Instalación y entorno: [README principal](../README.md). Contratos normativos: [REQUERIMIENTOS_API.txt](../REQUERIMIENTOS_API.txt), especialmente secciones 2 a 11. Alcance: [funcionalidades](../Funcionalidades_Directorio_Geo_SQL_v1_3.txt).
+Instalación y entorno: [README principal](../README.md). Contratos normativos: [REQUERIMIENTOS_API.md](../REQUERIMIENTOS_API.md), especialmente secciones 2 a 11. Alcance: [funcionalidades](../Funcionalidades_Directorio_Geo_SQL_v1_3.md).
 
 ```powershell
 pnpm install --frozen-lockfile

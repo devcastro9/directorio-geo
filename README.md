@@ -6,8 +6,8 @@ El producto permite encontrar sucursales, consultar horarios, contactos, precios
 
 ## Documentos y alcance
 
-- [Funcionalidades](Funcionalidades_Directorio_Geo_SQL_v1_3.txt): alcance, valor para el usuario, entregas y criterios de aceptación.
-- [Contrato API](REQUERIMIENTOS_API.txt): fuente normativa de rutas, parámetros, DTO JSON/GeoJSON, permisos, reglas y cambios SQL necesarios.
+- [Funcionalidades](Funcionalidades_Directorio_Geo_SQL_v1_3.md): alcance, valor para el usuario, entregas y criterios de aceptación.
+- [Contrato API](REQUERIMIENTOS_API.md): fuente normativa de rutas, parámetros, DTO JSON/GeoJSON, permisos, reglas y cambios SQL necesarios.
 - Este README: estado comprobado, arquitectura, instalación y orden de implementación. [README del frontend](frontend/README.md): integración Nuxt.
 
 Los tres documentos usan una sola planificación: **P0**, base técnica; **P1**, MVP público administrable; **P2**, autogestión por propietarios. P0/P1 suman **27 operaciones HTTP**; P2 añade **4**, para **31** en total. Cada combinación método+ruta cuenta una vez; OpenAPI/Scalar de desarrollo no son operaciones del producto. JSON y GeoJSON son dos representaciones de una misma búsqueda.
@@ -37,8 +37,8 @@ Un monolito modular ASP.NET Core, un frontend Nuxt y una base PostgreSQL. Un ún
 ```text
 directorio-geo/
   README.md
-  REQUERIMIENTOS_API.txt
-  Funcionalidades_Directorio_Geo_SQL_v1_3.txt
+  REQUERIMIENTOS_API.md
+  Funcionalidades_Directorio_Geo_SQL_v1_3.md
   docker-compose.yml
   docker-compose.dev.yml
   .env.example

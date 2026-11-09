@@ -1,12 +1,14 @@
-CONTRATO FUNCIONAL Y HTTP — DIRECTORIO GEO DE NEGOCIOS
+# CONTRATO FUNCIONAL Y HTTP — DIRECTORIO GEO DE NEGOCIOS
+
 Versión 2.0 | Fecha: 2026-11-09 | Base: /api/v1
 Estado: especificación normativa para desarrollar; NO API implementada.
 
-0. AUTORIDAD, ALCANCE Y STACK
+## 0. AUTORIDAD, ALCANCE Y STACK
+
 
 Reemplaza íntegramente los contratos anteriores. Define entradas, salidas,
-permisos y reglas. Funcionalidades_Directorio_Geo_SQL_v1_3.txt establece el valor
-y aceptación; README.md describe instalación y estado actual. Los ejemplos son
+permisos y reglas. [Funcionalidades_Directorio_Geo_SQL_v1_3.md](Funcionalidades_Directorio_Geo_SQL_v1_3.md) establece el valor
+y aceptación; [README.md](README.md) describe instalación y estado actual. Los ejemplos son
 instancias de los tipos definidos, no contratos alternos.
 
 Stack inamovible: ASP.NET Core 10/C#, Identity Guid/JWT Bearer, EF Core 10,
@@ -22,52 +24,56 @@ autocompletado, importaciones masivas, CRUD genérico de catálogos/parámetros,
 contornos territoriales y GIS avanzado. Sus tablas no se eliminan. No hay
 endpoints, workers ni contratos parciales para esos módulos.
 
-1. INVENTARIO CANÓNICO — 27 OPERACIONES MVP + 4 P2
+## 1. INVENTARIO CANÓNICO — 27 OPERACIONES MVP + 4 P2
+
 
 Todas las rutas usan el prefijo /api/v1, INCLUIDAS las rutas health.
 P=pública; A=Admin; M=Admin o propietario asociado vigente en P2.
 En P1 toda M exige Admin. Id de ruta UUID salvo slug, que es texto.
 Por defecto éxito 200; 201/204 se indican. Entradas/salidas tipadas en §2..11.
 
- ID Método Ruta relativa                                  Acceso Entrada -> salida
- 01 GET    /catalogs                                      P      ninguna -> Catalogs
- 02 GET    /territories                                   P      query §4 -> Page<Territory>
- 03 GET    /branches                                      P      query §5 -> Page<BranchSummary>/GeoJSON
- 04 GET    /businesses/{slug}                              P      slug -> PublicBusiness
- 05 GET    /branches/{branchId}                            P      UUID -> PublicBranch
- 06 GET    /photos/{photoId}                               P/M    UUID -> binario §9
- 07 POST   /auth/login                                    P      LoginInput -> AuthSession
- 08 POST   /auth/refresh                                  P      cookie, sin body -> AuthSession
- 09 POST   /auth/logout                                   P      cookie, sin body -> 204
- 10 GET    /auth/me                                       sesión ninguna -> User
- 11 GET    /management/businesses                         M      query §7 -> Page<ManagedSummary>
- 12 POST   /management/businesses                         M      CreateBusiness -> ManagedBusiness, 201
- 13 GET    /management/businesses/{businessId}             M      UUID -> ManagedBusiness
- 14 PUT    /management/businesses/{businessId}             M      BusinessInput -> ManagedBusiness
- 15 PUT    /management/businesses/{businessId}/publication A      PublicationInput -> ManagedBusiness
- 16 DELETE /management/businesses/{businessId}             A      sin body -> 204
- 17 POST   /management/businesses/{businessId}/restore     A      RestoreInput -> ManagedBusiness
- 18 POST   /management/businesses/{businessId}/branches    M      BranchInput -> ManagedBusiness, 201
- 19 PUT    /management/branches/{branchId}                 M      BranchInput -> ManagedBusiness
- 20 DELETE /management/branches/{branchId}                 M      sin body -> 204
- 21 POST   /management/branches/{branchId}/restore         A      sin body -> ManagedBusiness
- 22 POST   /management/branches/{branchId}/photos          M      multipart §9 -> ManagedBusiness, 201
- 23 PUT    /management/photos/{photoId}                    M      PhotoInput -> ManagedBusiness
- 24 DELETE /management/photos/{photoId}                    M      sin body -> 204
- 25 GET    /admin/audit-logs                               A      query §10 -> Page<AuditEntry>
- 26 GET    /health                                         P      ninguna -> Health
- 27 GET    /health/ready                                   P      ninguna -> Health, 200/503
- 28 POST   /auth/register                                  P/P2   RegisterInput -> User, 201
- 29 GET    /admin/businesses/{businessId}/owners           A/P2   ninguna -> OwnerList
- 30 PUT    /admin/businesses/{businessId}/owners           A/P2   OwnerInput -> Owner
- 31 DELETE /admin/businesses/{businessId}/owners/{userId}  A/P2   sin body -> 204
+| ID | Método | Ruta relativa | Acceso | Entrada → salida |
+| --- | --- | --- | --- | --- |
+| 01 | `GET` | `/catalogs` | P | ninguna -> Catalogs |
+| 02 | `GET` | `/territories` | P | query §4 -> `Page<Territory>` |
+| 03 | `GET` | `/branches` | P | query §5 -> `Page<BranchSummary>`/GeoJSON |
+| 04 | `GET` | `/businesses/{slug}` | P | slug -> PublicBusiness |
+| 05 | `GET` | `/branches/{branchId}` | P | UUID -> PublicBranch |
+| 06 | `GET` | `/photos/{photoId}` | P/M | UUID -> binario §9 |
+| 07 | `POST` | `/auth/login` | P | LoginInput -> AuthSession |
+| 08 | `POST` | `/auth/refresh` | P | cookie, sin body -> AuthSession |
+| 09 | `POST` | `/auth/logout` | P | cookie, sin body -> 204 |
+| 10 | `GET` | `/auth/me` | sesión | ninguna -> User |
+| 11 | `GET` | `/management/businesses` | M | query §7 -> `Page<ManagedSummary>` |
+| 12 | `POST` | `/management/businesses` | M | CreateBusiness -> ManagedBusiness, 201 |
+| 13 | `GET` | `/management/businesses/{businessId}` | M | UUID -> ManagedBusiness |
+| 14 | `PUT` | `/management/businesses/{businessId}` | M | BusinessInput -> ManagedBusiness |
+| 15 | `PUT` | `/management/businesses/{businessId}/publication` | A | PublicationInput -> ManagedBusiness |
+| 16 | `DELETE` | `/management/businesses/{businessId}` | A | sin body -> 204 |
+| 17 | `POST` | `/management/businesses/{businessId}/restore` | A | RestoreInput -> ManagedBusiness |
+| 18 | `POST` | `/management/businesses/{businessId}/branches` | M | BranchInput -> ManagedBusiness, 201 |
+| 19 | `PUT` | `/management/branches/{branchId}` | M | BranchInput -> ManagedBusiness |
+| 20 | `DELETE` | `/management/branches/{branchId}` | M | sin body -> 204 |
+| 21 | `POST` | `/management/branches/{branchId}/restore` | A | sin body -> ManagedBusiness |
+| 22 | `POST` | `/management/branches/{branchId}/photos` | M | multipart §9 -> ManagedBusiness, 201 |
+| 23 | `PUT` | `/management/photos/{photoId}` | M | PhotoInput -> ManagedBusiness |
+| 24 | `DELETE` | `/management/photos/{photoId}` | M | sin body -> 204 |
+| 25 | `GET` | `/admin/audit-logs` | A | query §10 -> `Page<AuditEntry>` |
+| 26 | `GET` | `/health` | P | ninguna -> Health |
+| 27 | `GET` | `/health/ready` | P | ninguna -> Health, 200/503 |
+| 28 | `POST` | `/auth/register` | P/P2 | RegisterInput -> User, 201 |
+| 29 | `GET` | `/admin/businesses/{businessId}/owners` | A/P2 | ninguna -> OwnerList |
+| 30 | `PUT` | `/admin/businesses/{businessId}/owners` | A/P2 | OwnerInput -> Owner |
+| 31 | `DELETE` | `/admin/businesses/{businessId}/owners/{userId}` | A/P2 | sin body -> 204 |
 
 No se cuentan OpenAPI/Scalar de desarrollo ni /Prueba, que se retira. Dos formatos
 de búsqueda no son dos operaciones. P1 no registra las rutas 28..31 (404).
 
-2. CONVENCIONES TRANSVERSALES [P0]
+## 2. CONVENCIONES TRANSVERSALES [P0]
 
-2.1 Tipos, formato y validación
+
+### 2.1 Tipos, formato y validación
+
 JSON camelCase UTF-8, application/json salvo GeoJSON/errores/fotos.
 UUID=string canónica minúscula 8-4-4-4-12 distinta de cero; Guid Identity.
 Date=YYYY-MM-DD; Instant=ISO 8601 UTC con Z; Time=HH:mm local 00:00..23:59.
@@ -85,9 +91,10 @@ longitud cero, no {}. UUID mal formado ->400; válido inexistente de ruta ->404.
 Referencia inactiva/inexistente en query/body ->400, con error de campo.
 JSON máximo 1 MiB; multipart 6 MiB, archivo 5 MiB; exceso ->413.
 
-2.2 Paginación
+### 2.2 Paginación
+
 Pagination={page:int,pageSize:int,totalItems:int,totalPages:int}.
-Page<T>={items:T[],pagination:Pagination}.
+`Page<T>`={items:T[],pagination:Pagination}.
 page predeterminado 1, >=1; pageSize predeterminado 20, 1..100.
 offset=(page-1)*pageSize máximo 2000; exceso ->400. totalPages=ceil(total/pageSize),
 0 si total=0. Página posterior al final dentro del límite ->200 items vacío.
@@ -95,7 +102,8 @@ Contar recursos distintos, no joins multiplicados. Conteo y página en la misma
 instantánea REPEATABLE READ de lectura; páginas solicitadas por separado pueden
 cambiar con nuevas publicaciones. Listas no paginadas tienen límites explícitos.
 
-2.3 Concurrencia, cabeceras y auditoría
+### 2.3 Concurrencia, cabeceras y auditoría
+
 Agregado business con sucursales/fotos/asociaciones. Añadir revision BIGINT >=1
 DEFAULT 1. Cada mutación bloquea business SELECT FOR UPDATE, comprueba permiso
 y revisión bajo bloqueo, aplica todo y aumenta revision una vez por cambio
@@ -123,10 +131,11 @@ para no filtrar identidad al reutilizar conexión. Auditoría dentro de transacc
 incluidos contactos/horas/relaciones. Excluir tokens/hashes/BYTEA de snapshots/logs.
 No generar eventos ni persistir ubicación del visitante.
 
-2.4 Errores y visibilidad
+### 2.4 Errores y visibilidad
+
 RFC 9457, application/problem+json, tipo uniforme:
 {type:"about:blank",title:string,status:int,code:string,detail:string,
- traceId:string,errors:Record<string,string[]>}.
+ traceId:string,errors:`Record<string,string[]>`}.
 errors={} salvo validación; mensajes españoles sin SQL ni stack.
 ```json
 {
@@ -152,7 +161,8 @@ Público JSON/GeoJSON/fotos: Cache-Control:no-store. Sin OutputCache en MVP.
 Retirar afecta nuevas consultas, no borra copias vistas antes por el visitante.
 Todas las salidas privadas/auth usan no-store. Servir solo por HTTPS en producción.
 
-3. AUTENTICACIÓN [P0, REGISTRO P2]
+## 3. AUTENTICACIÓN [P0, REGISTRO P2]
+
 
 User={id:UUID,email:string,firstName:string,lastName:string,roles:string[]}.
 Roles exactos Admin, BusinessOwner, User; orden alfabético. No Moderator.
@@ -205,7 +215,8 @@ Límites por minuto, ventana fija, cola 0: login/registro 5/IP; refresh/logout
 lecturas privadas 120/usuario. Auth/me sin autenticación usa límite público.
 Forwarded headers solo de proxies conocidos antes de derivar IP. Health 120/IP.
 
-4. CATÁLOGOS Y TERRITORIOS [P1]
+## 4. CATÁLOGOS Y TERRITORIOS [P1]
+
 
 CatalogItem={id:UUID,code:string,name:string,sortOrder:int}.
 Category=CatalogItem + {parentId:UUID?}.
@@ -227,7 +238,8 @@ jerarquía posible o400; parent inexistente/inactivo ->400. Orden nombre
 normalizado,id. Solo activos con ancestros activos. Barrio puede colgar de
 municipio o zona. Departamentos raíz cargados pertenecen a Bolivia; no tabla país.
 
-5. BÚSQUEDA JSON/GEOJSON [P1]
+## 5. BÚSQUEDA JSON/GEOJSON [P1]
+
 
 03 query (opcionales salvo dependencias):
  q           texto trim 1..200; vacío/blancos equivale a ausencia.
@@ -270,7 +282,7 @@ BranchSummary={id:UUID,businessId:UUID,businessSlug:string,tradeName:string,
 status efectivo: temporal si cualquier padre/sucursal temporal; permanente nunca
 sale público. priceLevel=sucursal si existe, si no negocio;1..4 o null. Portada
 activa URL relativa /api/v1/photos/{photoId} o null. Sin calificaciones ficticias.
-JSON:200 Page<BranchSummary>, application/json. Ejemplo:
+JSON:200 `Page<BranchSummary>`, application/json. Ejemplo:
 ```json
 {
   "items": [{
@@ -325,7 +337,8 @@ Feature.id=BranchSummary.id. Vacío features=[], total0. Ejemplo de la misma fil
 format elige representación. Accept ausente o */* la admite; si no admite la
 solicitada ->406 ProblemDetails. Resto rutas JSON solo JSON. No /map ni /nearby.
 
-6. FICHAS Y HORARIOS [P1]
+## 6. FICHAS Y HORARIOS [P1]
+
 
 PublicBusiness={id:UUID,slug:string,tradeName:string,description:string?,
  status:BusinessStatus,priceLevel:int?,branches:PublicBranch[]}.
@@ -372,7 +385,8 @@ de propietarios, revisión ni auditoría pública. Precio orientativo1económico
 2medio,3alto,4muy alto; no simular cero por ausencia. Rangos de sucursal BOB
 independientes opcionales, ambos informados min<=max. Sin service_price en API.
 
-7. GESTIÓN DE NEGOCIOS [P1, PERMISOS P2]
+## 7. GESTIÓN DE NEGOCIOS [P1, PERMISOS P2]
+
 
 11 query:q opcional1..200 por tradeName/slug; publicationStatus opcional
 (draft|published|archived); deleted=false|true predeterminado false; page/pageSize.
@@ -433,7 +447,8 @@ una (datos legacy), reparar como §12. No restaurar fotos eliminadas individualm
 Validar referencias/ubicación; conflicto rollback409 o400 por campo. Históricos
 que no cumplan contrato deben corregirse por mantenimiento antes de restauración.
 
-8. SUCURSALES Y COLECCIONES
+## 8. SUCURSALES Y COLECCIONES
+
 
 BranchInput={name:string,address:string,territoryId:UUID,location:Point,
  status:BusinessStatus,isPrimary:bool,priceLevel:int?,minPriceBob:Money?,
@@ -498,7 +513,8 @@ PUT colecciones, sin DELETE físico:
   ante cruce de día devolver400 para recargar calendario y conservar formulario.
 Todas las colecciones, revisión y auditoría en una sola transacción.
 
-9. FOTOS Y PREVISUALIZACIÓN
+## 9. FOTOS Y PREVISUALIZACIÓN
+
 
 22 multipart campos:file (un archivo),altText opcional<=300,ausente/vacío null;
 isPrimary true/false obligatorio,sortOrder entero0..999 obligatorio. Sin partes
@@ -524,7 +540,8 @@ JWT presente inválido401. Sin token en query ni URLs firmadas.
 Content-Disposition:inline,Cache-Control:no-store. Sin ETag/304 de imagen.
 Preview privada fetch Bearer y Blob URL; liberar URL al desmontar componente.
 
-10. AUDITORÍA Y SALUD
+## 10. AUDITORÍA Y SALUD
+
 
 25 query:entity opcional business|branch|branch_photo|business_owner|
 owner_identity|branch_contact|opening_hour|branch_hour_override|branch_category|
@@ -544,7 +561,8 @@ a ProblemDetails para salud no lista. Sin conexiones/versiones exactas ni stack.
 Rutas sin auth, /api/v1/health y /api/v1/health/ready. Compose deberá usar ready;
 pg_isready no comprueba aplicación/esquema. No dependen de negocios de prueba.
 
-11. PROPIETARIOS [P2]
+## 11. PROPIETARIOS [P2]
+
 
 Registro28 §3. Sin solicitudes, evidencias, documentos de identidad ni reclamos.
 Admin verifica por contacto comercial conocido o entrevista con titular, no basta
@@ -574,12 +592,14 @@ NO15..17/21/25/29..31. Alta12 basta identidad vigente, crea vínculo atómico.
 No editar taxId/legalName. Edición publicada entra directamente con validaciones
 y auditoría; no sistema editorial adicional. Admin puede retirarla.
 
-12. PERSISTENCIA Y CAMBIOS NECESARIOS [P0/P1]
+## 12. PERSISTENCIA Y CAMBIOS NECESARIOS [P0/P1]
+
 
 Fuente inspeccionada:db/init/01_schema.sql, no un SQL externo v1.3.
 Estos son cambios A IMPLEMENTAR, no migraciones ejecutadas por esta revisión.
 
-12.1 Línea base y seguridad
+### 12.1 Línea base y seguridad
+
 - 01_schema.sql YA incluye Identity/__EFMigrationsHistory. No ejecutar
   backend/Data/Migrations/IdentityMigration.sql encima: incluye dominio y colisiona.
 - Incrementos SQL numerados con checksum en tabla control a incorporar
@@ -597,7 +617,8 @@ Estos son cambios A IMPLEMENTAR, no migraciones ejecutadas por esta revisión.
 - Actor transaccional según app.actor() y clave real de línea base; no confiar
   en parámetros actor/p_is_admin del cliente. Autorización siempre backend.
 
-12.2 Integridad y lectura
+### 12.2 Integridad y lectura
+
 - business.revision bigint>=1 DEFAULT1, una revisión por cambio efectivo.
   Locks usuario/business en orden uniforme y triggers diferidos de sucursal mínima.
 - BRANCH_PRIMARY_ONE_IDX/PHOTO_PRIMARY_ONE_IDX están COMENTADOS. Resolver duplicados
@@ -622,7 +643,8 @@ Estos son cambios A IMPLEMENTAR, no migraciones ejecutadas por esta revisión.
   territorial validado pasan draft hasta corregir. Inventariar y corregir datos
   que excedan límites de esta especificación antes de habilitar rutas nuevas.
 
-12.3 Sesiones Identity
+### 12.3 Sesiones Identity
+
 - UNIQUE NormalizedEmail tras revisar duplicados; EmailIndex actual no es único.
 - app.auth_session:id UUID PK (sid),user_id UUID FK public.AspNetUsers,
   created_at timestamptz,expires_at timestamptz (=creado+30d),revoked_at nullable;
@@ -636,7 +658,8 @@ Estos son cambios A IMPLEMENTAR, no migraciones ejecutadas por esta revisión.
   referencias existentes antes de agregar FK faltantes a Identity; usuarios por
   desactivación, no borrado físico que rompa historia.
 
-12.4 Búsqueda, datos y fotos
+### 12.4 Búsqueda, datos y fotos
+
 - branch.location geography(Point,4326);territory.boundary geography(MultiPolygon,
   4326) nullable. Bbox SQL de altas no certifica frontera.
 - app.find_branches YA recibe p_territory_id. Orden patrocinado/proyección reseñas
@@ -653,7 +676,8 @@ Estos son cambios A IMPLEMENTAR, no migraciones ejecutadas por esta revisión.
   padre y desmarcar portada anterior antes de marcar nueva para índice único.
   Elegir decodificador .NET compatible y comprobar límites §9 antes de persistir.
 
-13. FRONTEND Y CRITERIOS DE TERMINADO
+## 13. FRONTEND Y CRITERIOS DE TERMINADO
+
 
 Páginas P1: / buscador,/businesses/[slug] ficha,/login,/management listado,
 /management/businesses/new y /management/businesses/[id] edición,/admin/audit.
@@ -697,13 +721,15 @@ Pruebas obligatorias con PostgreSQL18/PostGIS real:
 Compilar no sustituye aceptación. No afirmar pruebas aprobadas por este texto.
 Esta revisión modifica documentación; SQL,backend y frontend siguen pendientes.
 
-14. REFERENCIAS NORMATIVAS
+## 14. REFERENCIAS NORMATIVAS
 
-GeoJSON:https://www.rfc-editor.org/rfc/rfc7946
-ProblemDetails:https://www.rfc-editor.org/rfc/rfc9457
-Metros/consulta espacial:https://postgis.net/docs/ST_DWithin.html
 
-15. REGLAS COMPLEMENTARIAS PARA IMPLEMENTACIÓN SIN AMBIGÜEDAD
+- [GeoJSON: RFC 7946](https://www.rfc-editor.org/rfc/rfc7946)
+- [Problem Details: RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
+- [PostGIS: ST_DWithin](https://postgis.net/docs/ST_DWithin.html)
+
+## 15. REGLAS COMPLEMENTARIAS PARA IMPLEMENTACIÓN SIN AMBIGÜEDAD
+
 
 - Todo ID de catálogo de BranchInput debe existir y estar activo; no se acepta
   categoría con ancestro inactivo. Territorio también requiere ancestros activos.
