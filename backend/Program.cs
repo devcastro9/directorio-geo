@@ -1,4 +1,5 @@
-using backend.Data;
+﻿using backend.Data;
+using backend.Middleware;
 using backend.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,6 @@ namespace backend
         public static void Main(string[] args)
         {
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
-            // Database
             builder.Services.AddDbContext<AppDbContext>(options =>
             {
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), npgsql =>
@@ -28,40 +28,30 @@ namespace backend
                     options.EnableDetailedErrors();
                 }
             });
-            // Add services to the container.
-            builder.Services.AddScoped<IAuthService, AuthService>();
-            // Controllers
-            builder.Services.AddControllers();
-            // CORS
+            builder.Services.AddScoped<ICategoryService, CategoryService>();
+            builder.Services.AddProblemDetails();
+            builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+            builder.Services.AddControllers(options => options.ReturnHttpNotAcceptable = true);
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("CorsPolicy", policy =>
-                {
-                    policy
-                        .AllowAnyOrigin()
-                        .AllowAnyHeader()
-                        .AllowAnyMethod();
-                });
+                    policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
             });
-            // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             builder.Services.AddOpenApi();
 
             WebApplication app = builder.Build();
+            app.UseExceptionHandler();
+            app.UseStatusCodePages();
 
-            // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
                 app.MapOpenApi();
                 app.MapScalarApiReference();
             }
-            //Cors
             app.UseCors("CorsPolicy");
             //app.UseHttpsRedirection();
-
             //app.UseAuthorization();
-
             app.MapControllers();
-
             app.Run();
         }
     }
