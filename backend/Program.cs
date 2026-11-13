@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Scalar.AspNetCore;
+using System.Text.Json.Serialization;
 
 namespace backend
 {
@@ -31,7 +32,13 @@ namespace backend
             builder.Services.AddScoped<ICategoryService, CategoryService>();
             builder.Services.AddProblemDetails();
             builder.Services.AddExceptionHandler<ApiExceptionHandler>();
-            builder.Services.AddControllers(options => options.ReturnHttpNotAcceptable = true);
+            builder.Services.AddControllers(options =>
+            {
+                options.ReturnHttpNotAcceptable = true;
+            }).AddJsonOptions(options =>
+            {
+                options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+            });
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("CorsPolicy", policy =>
