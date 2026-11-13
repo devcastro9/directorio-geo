@@ -197,3 +197,29 @@ Actualmente no existen pruebas .NET ni script test frontend. El backend tiene lo
 Antes de exposición pública: configurar HTTPS/proxy, cerrar CORS, desactivar logs sensibles, usar un rol DB con permisos mínimos en vez del usuario inicial, preparar backups y comprobar restauración. No hay pipeline CI/CD ni terminación TLS incorporados. pgAdmin permanece en loopback. La salud lista de la futura API no debe depender de datos de negocios ni exponerse como diagnóstico detallado.
 
 Problemas habituales: si falla una variable, completar `.env` y ejecutar `config --quiet`; si falla `/Prueba`, revisar conexión/esquema; si `db` no resuelve desde Windows, usar localhost; si un puerto está ocupado, cambiar el puerto del host; si no aparece OpenAPI, usar Development. Conservar siempre el lockfile de pnpm.
+
+## Ingeniera inversa a la base de datos (Database First)
+Ejecutar en la **Consola del Administrador de paquetes de Visual Studio (NuGet)**, con la solucion `backend/backend.slnx` abierta y la base actualizada. Usa `ConnectionStrings:DefaultConnection`, configurada previamente mediante los secretos de usuario del proyecto para la base local. El entorno Development permite cargar esos secretos.
+
+```powershell
+Scaffold-DbContext 'Name=ConnectionStrings:DefaultConnection' Npgsql.EntityFrameworkCore.PostgreSQL `
+    -Project backend -StartupProject backend -Args '--environment Development' `
+    -Context AppDbContext -ContextDir Data -OutputDir Models `
+    -ContextNamespace backend.Data -Namespace backend.Models `
+    -DataAnnotations -NoOnConfiguring `
+    -Tables "catalog.category","catalog.service","catalog.feature","catalog.payment_method","catalog.parameter_definition","catalog.parameter_value","geo.territory","app.business","app.branch","app.owner_identity","app.business_owner","app.branch_category","app.branch_service","app.branch_feature","app.branch_payment","app.branch_contact","app.opening_hour","app.holiday","app.branch_hour_override","app.service_price","app.branch_photo","app.review","app.review_reply","app.favorite","app.ad_placement","app.import_batch","app.import_row","app.search_synonym","app.event","app.event_hist","app.daily_metric","app.monthly_metric","app.audit_log","app.published_branch","app.dashboard_branch_metrics","app.dashboard_ad_performance","app.admin_business_summary" `
+    -Force
+```
+
+La lista incluye las tablas y vistas actuales de `catalog`, `geo` y `app`; omite las tablas Identity de `public`. Se usa solo `-Tables`: agregar `-Schemas` incluiria todos los objetos de esos esquemas, incluso los que no aparecen en la lista. El cambio de codigo de categoria a `medical_office` modifica datos iniciales y no requiere agregar entidades al scaffold.
+
+`-Force` sobrescribe el contexto y los modelos existentes. Antes de compilar, revisar el diff y restaurar en `AppDbContext` la herencia `IdentityDbContext<ApplicationUser, ApplicationRole, Guid>`, el import de `backend.Identity` y la llamada a `base.OnModelCreating(modelBuilder)`. Conservar tambien las personalizaciones existentes y la llamada a `OnModelCreatingPartial`. El proveedor espacial ya esta instalado mediante `Npgsql.EntityFrameworkCore.PostgreSQL.NetTopologySuite`.
+
+Referencia: [ingenieria inversa de EF Core](https://learn.microsoft.com/en-us/ef/core/managing-schemas/scaffolding/).
+
+## Tablas de NET Core Identity
+```
+Add-Migration InitialIdentity -Context AppDbContext -OutputDir Data/Migrations
+Script-Migration -Context AppDbContext -Output Data/Migrations/IdentityMigration.sql
+Remove-Migration
+```
