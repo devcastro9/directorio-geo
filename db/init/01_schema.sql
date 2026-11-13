@@ -29,7 +29,8 @@ CREATE OR REPLACE FUNCTION APP.ACTOR () RETURNS UUID LANGUAGE SQL STABLE AS $$
  SELECT nullif(current_setting('bolivianegocios.actor_id', true), '')::UUID $$;
 
 -- El backend debe establecer SET LOCAL bolivianegocios.actor_id = 'ID_DEL_USUARIO'
--- en la misma transaccion; con una unica cuenta DB esto NO es una barrera de seguridad.
+-- en la misma transaccion, tambien desde el Worker Service cuando exista actor.
+-- Identidad y roles se validan en el backend; los argumentos p_is_admin no vienen del cliente.
 -- Catalogos independientes; solo las categorias admiten jerarquia.
 CREATE TABLE CATALOG.CATEGORY (
 	ID UUID PRIMARY KEY DEFAULT UUIDV7(),
@@ -238,25 +239,72 @@ CREATE TRIGGER PARAMETER_TOUCH
 BEFORE UPDATE ON CATALOG.PARAMETER_VALUE FOR EACH ROW
 EXECUTE FUNCTION APP.TOUCH ();
 
-CREATE OR REPLACE FUNCTION CATALOG.CHECK_PARAMETER () RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
-DECLARE d catalog.parameter_definition%ROWTYPE; n numeric; typ text;
+CREATE OR REPLACE FUNCTION CATALOG.VALIDATE_PARAMETER_DATA (
+ P_CODE TEXT, P_TYPE TEXT, P_VALUE JSONB,
+ P_MIN NUMERIC, P_MAX NUMERIC, P_ALLOWED JSONB
+) RETURNS VOID LANGUAGE PLPGSQL IMMUTABLE AS $$
+DECLARE typ text := jsonb_typeof(p_value); n numeric;
 BEGIN
- SELECT * INTO STRICT d FROM catalog.parameter_definition WHERE code=NEW.code AND active;
- typ := jsonb_typeof(NEW.value);
- IF (d.data_type='boolean' AND typ<>'boolean') OR
-    (d.data_type IN ('integer','numeric') AND typ<>'number') OR
-    (d.data_type='text' AND typ<>'string') THEN
-  RAISE EXCEPTION 'Tipo invalido para parametro %',NEW.code; END IF;
- IF d.data_type IN ('integer','numeric') THEN
-  n := (NEW.value #>> '{}')::numeric;
-  IF (d.data_type='integer' AND n<>trunc(n)) OR
-   (d.min_number IS NOT NULL AND n<d.min_number) OR
-   (d.max_number IS NOT NULL AND n>d.max_number) THEN
-   RAISE EXCEPTION 'Fuera de rango: %',NEW.code; END IF;
+ IF p_value IS NULL OR
+    (p_type='boolean' AND typ<>'boolean') OR
+    (p_type IN ('integer','numeric') AND typ<>'number') OR
+    (p_type='text' AND typ<>'string')
+ THEN RAISE EXCEPTION 'Tipo invalido para parametro %',p_code; END IF;
+ IF p_type IN ('integer','numeric') THEN
+  n:=(p_value#>>'{}')::numeric;
+  IF (p_type='integer' AND n<>trunc(n))
+     OR (p_min IS NOT NULL AND n<p_min) OR (p_max IS NOT NULL AND n>p_max)
+  THEN RAISE EXCEPTION 'Fuera de rango: %',p_code; END IF;
  END IF;
- IF d.allowed_values IS NOT NULL AND
-   (jsonb_typeof(d.allowed_values)<>'array' OR NOT d.allowed_values @> jsonb_build_array(NEW.value)) THEN
-  RAISE EXCEPTION 'Valor no permitido: %',NEW.code; END IF;
+ IF p_allowed IS NOT NULL THEN
+  IF jsonb_typeof(p_allowed)<>'array' THEN RAISE EXCEPTION 'allowed_values debe ser array: %',p_code; END IF;
+  IF NOT p_allowed @> jsonb_build_array(p_value)
+  THEN RAISE EXCEPTION 'Valor no permitido: %',p_code; END IF;
+ END IF;
+ -- Contratos de los consumidores activos; no basta con ampliar min/max en la definicion.
+ IF p_code IN ('photo.max_bytes','search.default_radius_m','search.default_limit','analytics.archive_after_days') THEN
+  IF p_type<>'integer' THEN RAISE EXCEPTION 'Parametro % requiere integer',p_code; END IF;
+  n:=(p_value#>>'{}')::numeric;
+  IF n<1 OR n>(CASE p_code WHEN 'photo.max_bytes' THEN 52428800
+       WHEN 'search.default_radius_m' THEN 50000 WHEN 'search.default_limit' THEN 100 ELSE 365 END)
+  THEN RAISE EXCEPTION 'Valor incompatible con consumidor: %',p_code; END IF;
+ ELSIF p_code IN ('ad.require_paid','review.moderation_post') AND p_type<>'boolean' THEN
+  RAISE EXCEPTION 'Parametro % requiere boolean',p_code;
+ END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION CATALOG.CHECK_PARAMETER_DEFINITION ()
+RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
+DECLARE v record;
+BEGIN
+ PERFORM catalog.validate_parameter_data(NEW.code,NEW.data_type,NEW.default_value,
+  NEW.min_number,NEW.max_number,NEW.allowed_values);
+ FOR v IN SELECT value FROM catalog.parameter_value WHERE code=NEW.code AND active LOOP
+  PERFORM catalog.validate_parameter_data(NEW.code,NEW.data_type,v.value,
+   NEW.min_number,NEW.max_number,NEW.allowed_values);
+ END LOOP;
+ RETURN NEW;
+END $$;
+
+CREATE TRIGGER PARAMETER_DEFINITION_CHECK
+BEFORE INSERT OR UPDATE ON CATALOG.PARAMETER_DEFINITION
+FOR EACH ROW EXECUTE FUNCTION CATALOG.CHECK_PARAMETER_DEFINITION();
+
+CREATE OR REPLACE FUNCTION CATALOG.CHECK_PARAMETER () RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
+DECLARE d catalog.parameter_definition%ROWTYPE; valid_scope boolean;
+BEGIN
+ SELECT * INTO STRICT d FROM catalog.parameter_definition WHERE code=NEW.code AND active FOR SHARE;
+ PERFORM catalog.validate_parameter_data(NEW.code,d.data_type,NEW.value,d.min_number,d.max_number,d.allowed_values);
+ -- Solo los alcances consumidos en el MVP se administran: global y tamano de foto por sucursal.
+ IF NEW.scope_type<>'global' AND NOT (NEW.code='photo.max_bytes' AND NEW.scope_type='branch') THEN
+  RAISE EXCEPTION 'Alcance sin consumidor MVP para parametro %',NEW.code;
+ END IF;
+ CASE NEW.scope_type
+  WHEN 'global' THEN valid_scope:=NEW.scope_id IS NULL;
+  WHEN 'branch' THEN SELECT EXISTS(SELECT 1 FROM app.branch WHERE id=NEW.scope_id AND deleted_at IS NULL) INTO valid_scope;
+  ELSE valid_scope:=false;
+ END CASE;
+ IF NOT valid_scope THEN RAISE EXCEPTION 'Alcance inexistente o inactivo'; END IF;
  RETURN NEW;
 END $$;
 
@@ -265,11 +313,10 @@ BEFORE INSERT OR UPDATE ON CATALOG.PARAMETER_VALUE FOR EACH ROW
 EXECUTE FUNCTION CATALOG.CHECK_PARAMETER ();
 
 CREATE OR REPLACE FUNCTION CATALOG.GET_PARAMETER (
-	P_CODE TEXT,
-	P_SCOPE_TYPE TEXT DEFAULT 'global',
-	P_SCOPE_ID UUID DEFAULT NULL
+ P_CODE TEXT, P_SCOPE_TYPE TEXT DEFAULT 'global', P_SCOPE_ID UUID DEFAULT NULL
 ) RETURNS JSONB LANGUAGE SQL STABLE AS $$
  SELECT coalesce((SELECT v.value FROM catalog.parameter_value v
+  JOIN catalog.parameter_definition d ON d.code=v.code AND d.active
   WHERE v.code=p_code AND v.active AND v.valid_from<=now() AND (v.valid_to IS NULL OR v.valid_to>now())
    AND ((v.scope_type=p_scope_type AND v.scope_id IS NOT DISTINCT FROM p_scope_id)
      OR (v.scope_type='global' AND v.scope_id IS NULL))
@@ -278,6 +325,9 @@ CREATE OR REPLACE FUNCTION CATALOG.GET_PARAMETER (
 
 CREATE OR REPLACE FUNCTION CATALOG.PARAM_INT (P_CODE TEXT) RETURNS INTEGER LANGUAGE SQL STABLE AS $$
  SELECT (catalog.get_parameter(p_code)#>>'{}')::integer $$;
+
+CREATE OR REPLACE FUNCTION CATALOG.PARAM_BOOL (P_CODE TEXT) RETURNS BOOLEAN LANGUAGE SQL STABLE AS $$
+ SELECT (catalog.get_parameter(p_code)#>>'{}')::boolean $$;
 
 -- Territorio boliviano. INE autoridad principal, OSM complementario.
 -- Los poligonos se usan internamente para asignar/verificar ubicaciones.
@@ -461,12 +511,8 @@ CREATE TABLE APP.BRANCH (
 	)
 );
 
-/*
-CREATE UNIQUE INDEX BRANCH_PRIMARY_ONE_IDX ON APP.BRANCH (BUSINESS_ID)
-WHERE
-IS_PRIMARY
-AND DELETED_AT IS NULL;
-*/
+-- Decision de producto: se permiten varias sucursales marcadas como principales.
+
 CREATE INDEX BRANCH_BUSINESS_IDX ON APP.BRANCH (BUSINESS_ID)
 WHERE
 	DELETED_AT IS NULL;
@@ -496,34 +542,7 @@ BEFORE INSERT OR UPDATE OF TERRITORY_ID,
 LOCATION ON APP.BRANCH FOR EACH ROW
 EXECUTE FUNCTION APP.AUTO_TERRITORY ();
 
--- Restriccion diferida: al COMMIT todo negocio NO eliminado debe tener una sucursal NO eliminada.
-CREATE OR REPLACE FUNCTION APP.CHECK_BUSINESS_HAS_BRANCH () RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
-DECLARE bid uuid;
-BEGIN
- bid := CASE WHEN TG_TABLE_NAME='business' THEN NEW.id ELSE coalesce(NEW.business_id,OLD.business_id) END;
- IF EXISTS(SELECT 1 FROM app.business b WHERE b.id=bid AND b.deleted_at IS NULL)
- AND NOT EXISTS(SELECT 1 FROM app.branch s WHERE s.business_id=bid AND s.deleted_at IS NULL) THEN
-  RAISE EXCEPTION 'Negocio % requiere una sucursal activa (no dada de baja)',bid;
- END IF;
- IF TG_TABLE_NAME='branch' AND TG_OP='UPDATE' AND OLD.business_id IS DISTINCT FROM NEW.business_id THEN
-  IF EXISTS(SELECT 1 FROM app.business b WHERE b.id=OLD.business_id AND b.deleted_at IS NULL)
-  AND NOT EXISTS(SELECT 1 FROM app.branch s WHERE s.business_id=OLD.business_id AND s.deleted_at IS NULL) THEN
-   RAISE EXCEPTION 'Negocio % queda sin sucursales',OLD.business_id;
-  END IF;
- END IF;
- RETURN NULL;
-END $$;
-
-CREATE CONSTRAINT TRIGGER BUSINESS_MUST_HAVE_BRANCH
-AFTER INSERT OR UPDATE OF DELETED_AT ON APP.BUSINESS
-DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
-EXECUTE FUNCTION APP.CHECK_BUSINESS_HAS_BRANCH ();
-
-CREATE CONSTRAINT TRIGGER BRANCH_KEEPS_BUSINESS
-AFTER INSERT OR UPDATE OF DELETED_AT,
-BUSINESS_ID ON APP.BRANCH
-DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
-EXECUTE FUNCTION APP.CHECK_BUSINESS_HAS_BRANCH ();
+-- Un negocio puede conservarse sin sucursales. No se exige una sucursal principal.
 
 -- Identidades verificadas y asociaciones (NO son tablas de usuarios ni de roles de acceso).
 CREATE TABLE APP.OWNER_IDENTITY (
@@ -571,15 +590,22 @@ CREATE OR REPLACE FUNCTION APP.CREATE_BUSINESS_WITH_BRANCH (
 	P_LON DOUBLE PRECISION,
 	P_LAT DOUBLE PRECISION,
 	P_DESCRIPTION TEXT DEFAULT NULL,
-	P_TERRITORY_ID UUID DEFAULT NULL
+	P_TERRITORY_ID UUID DEFAULT NULL,
+	P_CATEGORY_IDS UUID[] DEFAULT NULL
 ) RETURNS UUID LANGUAGE PLPGSQL AS $$
-DECLARE bid uuid;
+DECLARE bid uuid; sid uuid;
 BEGIN
  IF NOT app.owner_is_verified(p_user_id) THEN RAISE EXCEPTION 'Propietario no verificado'; END IF;
+ IF coalesce(cardinality(p_category_ids),0)=0 OR EXISTS (
+  SELECT 1 FROM unnest(p_category_ids) x(id)
+  WHERE NOT EXISTS (SELECT 1 FROM catalog.category c WHERE c.id=x.id AND c.active)
+ ) THEN RAISE EXCEPTION 'Se requiere al menos una categoria vigente'; END IF;
  INSERT INTO app.business(trade_name,description,publication_status,created_by_user_id)
  VALUES(p_trade_name,p_description,'published',p_user_id) RETURNING id INTO bid;
  INSERT INTO app.branch(business_id,name,address,location,territory_id,is_primary)
- VALUES(bid,p_branch_name,p_address,ST_SetSRID(ST_MakePoint(p_lon,p_lat),4326)::geography,p_territory_id,true);
+ VALUES(bid,p_branch_name,p_address,ST_SetSRID(ST_MakePoint(p_lon,p_lat),4326)::geography,p_territory_id,true) RETURNING id INTO sid;
+ INSERT INTO app.branch_category(branch_id,category_id)
+ SELECT sid,x.id FROM (SELECT DISTINCT unnest(p_category_ids) AS id) x;
  INSERT INTO app.business_owner(business_id,user_id,verified_at) VALUES(bid,p_user_id,now());
  RETURN bid;
 END $$;
@@ -588,7 +614,7 @@ CREATE OR REPLACE FUNCTION APP.SOFT_DELETE_BRANCH (P_BRANCH_ID UUID, P_ACTOR UUI
 BEGIN
  UPDATE app.branch SET deleted_at=now(),deleted_by_user_id=p_actor,is_primary=false
  WHERE id=p_branch_id AND deleted_at IS NULL;
- -- La restriccion diferida rechazara quitar la ultima sucursal de negocio vigente.
+ -- Tambien se permite dar de baja la ultima sucursal.
 END $$;
 
 CREATE OR REPLACE FUNCTION APP.SOFT_DELETE_BUSINESS (P_BUSINESS_ID UUID, P_ACTOR UUID) RETURNS VOID LANGUAGE PLPGSQL AS $$
@@ -657,15 +683,26 @@ WHERE
 	IS_PRIMARY
 	AND DELETED_AT IS NULL;
 
--- Horario regular admite turnos multiples y cruce de medianoche.
+-- Indices de acceso a contactos y filtros inversos de asociaciones vigentes.
+CREATE INDEX CONTACT_BRANCH_IDX ON APP.BRANCH_CONTACT (BRANCH_ID)
+WHERE DELETED_AT IS NULL;
+CREATE INDEX BRANCH_SERVICE_REVERSE ON APP.BRANCH_SERVICE (SERVICE_ID, BRANCH_ID) WHERE ACTIVE;
+CREATE INDEX BRANCH_FEATURE_REVERSE ON APP.BRANCH_FEATURE (FEATURE_ID, BRANCH_ID) WHERE ACTIVE;
+CREATE INDEX BRANCH_PAYMENT_REVERSE ON APP.BRANCH_PAYMENT (METHOD_ID, BRANCH_ID) WHERE ACTIVE;
+
+-- Horario regular admite turnos multiples, cruce de medianoche y dias de 24 horas.
 CREATE TABLE APP.OPENING_HOUR (
 	ID UUID PRIMARY KEY DEFAULT UUIDV7(),
 	BRANCH_ID UUID NOT NULL REFERENCES APP.BRANCH (ID),
 	WEEKDAY SMALLINT NOT NULL CHECK (WEEKDAY BETWEEN 0 AND 6),
 	OPENS_AT TIME NOT NULL,
 	CLOSES_AT TIME NOT NULL,
+	IS_24_HOURS BOOLEAN NOT NULL DEFAULT FALSE,
 	ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
-	CHECK (OPENS_AT <> CLOSES_AT)
+	CHECK (
+		(IS_24_HOURS AND OPENS_AT = TIME '00:00' AND CLOSES_AT = TIME '00:00')
+		OR (NOT IS_24_HOURS AND OPENS_AT <> CLOSES_AT)
+	)
 );
 
 CREATE INDEX OPENING_HOUR_IDX ON APP.OPENING_HOUR (BRANCH_ID, WEEKDAY)
@@ -691,6 +728,8 @@ CREATE TABLE APP.BRANCH_HOUR_OVERRIDE (
 	BRANCH_ID UUID NOT NULL REFERENCES APP.BRANCH (ID),
 	SERVICE_DATE DATE NOT NULL,
 	IS_CLOSED BOOLEAN NOT NULL DEFAULT FALSE,
+	IS_24_HOURS BOOLEAN NOT NULL DEFAULT FALSE,
+	ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
 	OPENS_AT TIME,
 	CLOSES_AT TIME,
 	REASON TEXT,
@@ -698,6 +737,7 @@ CREATE TABLE APP.BRANCH_HOUR_OVERRIDE (
 	CHECK (
 		(
 			IS_CLOSED
+			AND NOT IS_24_HOURS
 			AND OPENS_AT IS NULL
 			AND CLOSES_AT IS NULL
 		)
@@ -705,41 +745,72 @@ CREATE TABLE APP.BRANCH_HOUR_OVERRIDE (
 			NOT IS_CLOSED
 			AND OPENS_AT IS NOT NULL
 			AND CLOSES_AT IS NOT NULL
-			AND OPENS_AT <> CLOSES_AT
+			AND (
+				(IS_24_HOURS AND OPENS_AT = TIME '00:00' AND CLOSES_AT = TIME '00:00')
+				OR (NOT IS_24_HOURS AND OPENS_AT <> CLOSES_AT)
+			)
 		)
 	)
 );
 
-CREATE OR REPLACE FUNCTION APP.IS_OPEN_AT (P_BRANCH UUID, P_WHEN TIMESTAMPTZ DEFAULT NOW()) RETURNS BOOLEAN LANGUAGE PLPGSQL STABLE AS $$
-DECLARE localts timestamp := p_when AT TIME ZONE 'America/La_Paz'; d date; t time; wd int;
-        ix integer; od date; oh app.branch_hour_override%ROWTYPE; has_ov boolean; hclosed boolean;
+CREATE OR REPLACE FUNCTION APP.IS_HOLIDAY (P_BRANCH UUID, P_DAY DATE)
+RETURNS BOOLEAN LANGUAGE SQL STABLE AS $$
+ WITH RECURSIVE ancestors AS (
+  SELECT t.id,t.parent_id FROM geo.territory t
+  JOIN app.branch b ON b.territory_id=t.id WHERE b.id=p_branch
+  UNION ALL
+  SELECT t.id,t.parent_id FROM geo.territory t JOIN ancestors a ON t.id=a.parent_id
+ )
+ SELECT EXISTS (
+  SELECT 1 FROM app.holiday h WHERE h.active
+  AND (h.territory_id IS NULL OR h.territory_id IN (SELECT id FROM ancestors))
+  AND (h.holiday_date=p_day OR (h.recurring_annually
+    AND extract(month FROM h.holiday_date)=extract(month FROM p_day)
+    AND extract(day FROM h.holiday_date)=extract(day FROM p_day)))
+ ) $$;
+
+CREATE OR REPLACE FUNCTION APP.IS_OPEN_AT (P_BRANCH UUID, P_WHEN TIMESTAMPTZ DEFAULT NOW())
+RETURNS BOOLEAN LANGUAGE PLPGSQL STABLE AS $$
+DECLARE localts timestamp := p_when AT TIME ZONE 'America/La_Paz';
+ d date := localts::date; t time := localts::time; wd int;
+ ix integer; od date; oh app.branch_hour_override%ROWTYPE; has_ov boolean;
 BEGIN
- d:=localts::date; t:=localts::time;
+ IF p_when IS NULL THEN RAISE EXCEPTION 'Fecha requerida'; END IF;
  IF NOT EXISTS(SELECT 1 FROM app.branch b JOIN app.business x ON x.id=b.business_id
- WHERE b.id=p_branch AND b.deleted_at IS NULL AND x.deleted_at IS NULL
- AND x.status='active' AND b.status='active' AND x.publication_status='published') THEN RETURN false; END IF;
- -- Examina inicio hoy y ayer; un turno que empieza ayer puede pasar medianoche.
+  WHERE b.id=p_branch AND b.deleted_at IS NULL AND x.deleted_at IS NULL
+  AND x.status='active' AND b.status='active' AND x.publication_status='published')
+ THEN RETURN false; END IF;
+
+ -- La excepcion de HOY sustituye el horario completo del dia, incluido el arrastre de ayer.
+ SELECT * INTO oh FROM app.branch_hour_override
+ WHERE branch_id=p_branch AND service_date=d AND active;
+ IF FOUND THEN
+  IF oh.is_closed THEN RETURN false; END IF;
+  IF oh.is_24_hours THEN RETURN true; END IF;
+  RETURN t>=oh.opens_at AND (oh.closes_at<oh.opens_at OR t<oh.closes_at);
+ END IF;
+ -- Un feriado cierra el dia civil completo, salvo excepcion explicita de apertura de hoy.
+ IF app.is_holiday(p_branch,d) THEN RETURN false; END IF;
+
  FOR ix IN 0..1 LOOP
   od:=d-ix; wd:=extract(dow FROM od)::int;
-  SELECT * INTO oh FROM app.branch_hour_override WHERE branch_id=p_branch AND service_date=od;
+  SELECT * INTO oh FROM app.branch_hour_override
+  WHERE branch_id=p_branch AND service_date=od AND active;
   has_ov:=FOUND;
-  SELECT EXISTS(SELECT 1 FROM app.holiday h JOIN app.branch b ON b.id=p_branch
-   LEFT JOIN LATERAL (WITH RECURSIVE ancestors AS (
-     SELECT id,parent_id FROM geo.territory WHERE id=b.territory_id
-     UNION ALL SELECT p.id,p.parent_id FROM geo.territory p JOIN ancestors a ON p.id=a.parent_id)
-     SELECT id FROM ancestors) chain ON chain.id=h.territory_id
-   WHERE h.active AND (h.territory_id IS NULL OR chain.id IS NOT NULL)
-    AND (h.holiday_date=od OR (h.recurring_annually AND extract(month FROM h.holiday_date)=extract(month FROM od)
-     AND extract(day FROM h.holiday_date)=extract(day FROM od)))) INTO hclosed;
   IF has_ov THEN
-   IF NOT oh.is_closed AND ((ix=0 AND t>=oh.opens_at AND (oh.closes_at<=oh.opens_at OR t<oh.closes_at))
-     OR (ix=1 AND oh.closes_at<=oh.opens_at AND t<oh.closes_at)) THEN RETURN true; END IF;
-  ELSIF NOT hclosed AND EXISTS (SELECT 1 FROM app.opening_hour h
-     WHERE h.branch_id=p_branch AND h.active AND h.weekday=wd AND
-      ((ix=0 AND t>=h.opens_at AND (h.closes_at<=h.opens_at OR t<h.closes_at)) OR
-       (ix=1 AND h.closes_at<=h.opens_at AND t<h.closes_at))) THEN RETURN true;
+   -- Solo un turno nocturno de ayer se arrastra; 24 horas termina a medianoche.
+   IF NOT oh.is_closed AND NOT oh.is_24_hours AND ix=1
+      AND oh.closes_at<oh.opens_at AND t<oh.closes_at THEN RETURN true; END IF;
+  ELSIF NOT app.is_holiday(p_branch,od) AND EXISTS (
+   SELECT 1 FROM app.opening_hour h
+   WHERE h.branch_id=p_branch AND h.active AND h.weekday=wd
+   AND ((ix=0 AND (h.is_24_hours OR
+        (t>=h.opens_at AND (h.closes_at<h.opens_at OR t<h.closes_at))))
+     OR (ix=1 AND NOT h.is_24_hours AND h.closes_at<h.opens_at AND t<h.closes_at))
+  ) THEN RETURN true;
   END IF;
- END LOOP; RETURN false;
+ END LOOP;
+ RETURN false;
 END $$;
 
 -- Precio en BOB en sucursal y por servicio (MVP: no promociones/catalogo de productos).
@@ -782,18 +853,13 @@ CREATE TABLE APP.BRANCH_PHOTO (
 	CHECK (OCTET_LENGTH(PHOTO_DATA) > 0)
 );
 
-/*
-CREATE UNIQUE INDEX PHOTO_PRIMARY_ONE_IDX ON APP.BRANCH_PHOTO (BRANCH_ID)
-WHERE
-IS_PRIMARY
-AND DELETED_AT IS NULL;
-*/
+-- Decision de producto: se permiten varias fotos principales por sucursal.
 CREATE INDEX PHOTO_BRANCH_IDX ON APP.BRANCH_PHOTO (BRANCH_ID, SORT_ORDER)
 WHERE
 	DELETED_AT IS NULL;
 
 CREATE OR REPLACE FUNCTION APP.VALIDATE_PHOTO_BYTES () RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
-DECLARE mx integer := catalog.param_int('photo.max_bytes'); sig text;
+DECLARE mx integer := (catalog.get_parameter('photo.max_bytes','branch',NEW.branch_id)#>>'{}')::integer; sig text;
 BEGIN
  IF mx IS NOT NULL AND octet_length(NEW.photo_data)>mx THEN RAISE EXCEPTION 'Imagen excede % bytes',mx; END IF;
  sig := encode(substring(NEW.photo_data FROM 1 FOR 12),'hex');
@@ -825,7 +891,6 @@ BEGIN
  SELECT business_id INTO STRICT bid FROM app.branch WHERE id=p_branch AND deleted_at IS NULL;
  IF NOT p_is_admin AND NOT app.owner_is_verified(p_user_id,bid) THEN
   RAISE EXCEPTION 'Solo propietario verificado o administrador'; END IF;
- IF p_primary THEN UPDATE app.branch_photo SET is_primary=false WHERE branch_id=p_branch AND deleted_at IS NULL AND is_primary; END IF;
  INSERT INTO app.branch_photo(branch_id,created_by_user_id,photo_data,mime_type,is_primary,filename,alt_text)
  VALUES(p_branch,p_user_id,p_data,p_mime,p_primary,p_filename,p_alt) RETURNING id INTO pid;
  RETURN pid;
@@ -839,7 +904,8 @@ CREATE TABLE APP.REVIEW (
 	RATING SMALLINT NOT NULL CHECK (RATING BETWEEN 1 AND 5),
 	TITLE VARCHAR(200),
 	BODY TEXT,
-	MODERATION_STATUS VARCHAR(20) NOT NULL DEFAULT 'visible' CHECK (
+	MODERATION_STATUS VARCHAR(20) NOT NULL DEFAULT
+		(CASE WHEN CATALOG.PARAM_BOOL('review.moderation_post') THEN 'visible' ELSE 'hidden' END) CHECK (
 		MODERATION_STATUS IN ('visible', 'hidden', 'flagged')
 	),
 	MODERATION_REASON TEXT,
@@ -975,9 +1041,10 @@ CREATE OR REPLACE FUNCTION APP.ACTIVE_ADS (P_AT TIMESTAMPTZ DEFAULT NOW()) RETUR
  SELECT a.id,b.id,a.slot,a.priority FROM app.ad_placement a JOIN app.branch b
  ON (a.branch_id=b.id OR (a.business_id=b.business_id AND a.branch_id IS NULL))
  JOIN app.business x ON x.id=b.business_id
- WHERE a.deleted_at IS NULL AND a.status='active' AND a.payment_status='paid'
+ WHERE a.deleted_at IS NULL AND a.status='active' AND (NOT catalog.param_bool('ad.require_paid') OR a.payment_status='paid')
  AND a.starts_at<=p_at AND a.ends_at>p_at
- AND b.deleted_at IS NULL AND x.deleted_at IS NULL AND x.publication_status='published' $$;
+ AND b.deleted_at IS NULL AND x.deleted_at IS NULL AND x.publication_status='published'
+  AND b.status<>'permanently_closed' AND x.status<>'permanently_closed' $$;
 
 CREATE OR REPLACE FUNCTION APP.EXPIRE_ADS (P_AT TIMESTAMPTZ DEFAULT NOW()) RETURNS INTEGER LANGUAGE PLPGSQL AS $$
 DECLARE n int;
@@ -1034,6 +1101,12 @@ CREATE TABLE APP.IMPORT_ROW (
 
 CREATE INDEX IMPORT_ROW_DECISION_IDX ON APP.IMPORT_ROW (BATCH_ID, DECISION);
 
+CREATE OR REPLACE FUNCTION APP.UNACCENT_FIXED (P_TEXT TEXT) RETURNS TEXT LANGUAGE SQL IMMUTABLE PARALLEL SAFE STRICT AS $$
+-- Diccionario fijo: si cambian sus reglas, reconstruir TODOS los indices sobre app.normalize.
+ SELECT public.unaccent('public.unaccent'::regdictionary,p_text) $$;
+
+CREATE OR REPLACE FUNCTION APP.NORMALIZE (P_TEXT TEXT) RETURNS TEXT LANGUAGE SQL IMMUTABLE PARALLEL SAFE AS $$ SELECT lower(app.unaccent_fixed(coalesce(p_text,''))) $$;
+
 -- Coincidencias son indicios; NUNCA actualizar un negocio existente automaticamente.
 CREATE OR REPLACE FUNCTION APP.FIND_IMPORT_DUPLICATES (
 	P_NAME TEXT,
@@ -1049,13 +1122,13 @@ CREATE OR REPLACE FUNCTION APP.FIND_IMPORT_DUPLICATES (
  SELECT b.id,s.id,b.trade_name,
  CASE WHEN p_lon IS NULL OR p_lat IS NULL THEN NULL ELSE
  ST_Distance(s.location,ST_SetSRID(ST_MakePoint(p_lon,p_lat),4326)::geography) END,
- similarity(lower(b.trade_name),lower(p_name))
+ similarity(app.normalize(b.trade_name),app.normalize(p_name))
  FROM app.business b JOIN app.branch s ON s.business_id=b.id
  WHERE b.deleted_at IS NULL AND s.deleted_at IS NULL
- AND (lower(b.trade_name) % lower(p_name) OR
+ AND (app.normalize(b.trade_name) % app.normalize(p_name) OR
  (p_lon IS NOT NULL AND p_lat IS NOT NULL AND
  ST_DWithin(s.location,ST_SetSRID(ST_MakePoint(p_lon,p_lat),4326)::geography,150)))
- ORDER BY similarity(lower(b.trade_name),lower(p_name)) DESC LIMIT 20 $$;
+ ORDER BY similarity(app.normalize(b.trade_name),app.normalize(p_name)) DESC LIMIT 20 $$;
 
 -- Sinonimos espanoles y autocompletado.
 CREATE TABLE APP.SEARCH_SYNONYM (
@@ -1067,13 +1140,6 @@ CREATE TABLE APP.SEARCH_SYNONYM (
 	UNIQUE (TERM, SYNONYM, LOCALE)
 );
 
-CREATE INDEX SYNONYM_TERM_IDX ON APP.SEARCH_SYNONYM USING GIN (TERM GIN_TRGM_OPS);
-
-CREATE OR REPLACE FUNCTION APP.UNACCENT_FIXED (P_TEXT TEXT) RETURNS TEXT LANGUAGE SQL IMMUTABLE PARALLEL SAFE STRICT AS $$
- SELECT public.unaccent('public.unaccent'::regdictionary,p_text) $$;
-
-CREATE OR REPLACE FUNCTION APP.NORMALIZE (P_TEXT TEXT) RETURNS TEXT LANGUAGE SQL IMMUTABLE PARALLEL SAFE AS $$ SELECT lower(app.unaccent_fixed(coalesce(p_text,''))) $$;
-
 CREATE INDEX BUSINESS_NAME_TRGM_IDX ON APP.BUSINESS USING GIN ((APP.NORMALIZE (TRADE_NAME)) GIN_TRGM_OPS)
 WHERE
 	DELETED_AT IS NULL;
@@ -1081,6 +1147,16 @@ WHERE
 CREATE INDEX BRANCH_NAME_TRGM_IDX ON APP.BRANCH USING GIN ((APP.NORMALIZE (NAME)) GIN_TRGM_OPS)
 WHERE
 	DELETED_AT IS NULL;
+
+-- Las expresiones coinciden con las usadas por busqueda y autocompletado.
+CREATE INDEX SYNONYM_TERM_IDX ON APP.SEARCH_SYNONYM (APP.NORMALIZE(TERM))
+WHERE ACTIVE;
+
+CREATE INDEX SYNONYM_AUTOCOMPLETE_IDX ON APP.SEARCH_SYNONYM
+USING GIN (APP.NORMALIZE(SYNONYM) GIN_TRGM_OPS) WHERE ACTIVE;
+
+CREATE INDEX CATEGORY_NAME_TRGM_IDX ON CATALOG.CATEGORY
+USING GIN (APP.NORMALIZE(NAME) GIN_TRGM_OPS) WHERE ACTIVE;
 
 CREATE OR REPLACE VIEW APP.PUBLISHED_BRANCH AS
 SELECT
@@ -1097,7 +1173,9 @@ SELECT
 	S.MIN_PRICE_BOB,
 	S.MAX_PRICE_BOB,
 	S.EMERGENCY,
-	S.HOME_SERVICE
+	S.HOME_SERVICE,
+	S.STATUS AS BRANCH_STATUS,
+	B.STATUS AS BUSINESS_STATUS
 FROM
 	APP.BRANCH S
 	JOIN APP.BUSINESS B ON B.ID = S.BUSINESS_ID
@@ -1109,7 +1187,8 @@ WHERE
 	AND S.STATUS <> 'permanently_closed';
 
 -- Parametros: filtro geometrico por viewport, punto/radio, categoria y descendientes,
--- solo publicados. Se usa dinamica sobre miles de sucursales y GIST/TRGM.
+-- Solo publicados; SQL estatico. Patrocinio primero, luego relevancia, distancia e ID.
+-- El backend convierte location a las coordenadas del mapa; el usuario no gestiona SRID.
 CREATE OR REPLACE FUNCTION APP.FIND_BRANCHES (
 	P_TEXT TEXT DEFAULT NULL,
 	P_CENTER GEOGRAPHY DEFAULT NULL,
@@ -1117,7 +1196,7 @@ CREATE OR REPLACE FUNCTION APP.FIND_BRANCHES (
 	P_BBOX GEOGRAPHY DEFAULT NULL,
 	P_CATEGORY_ID UUID DEFAULT NULL,
 	P_OPEN_NOW BOOLEAN DEFAULT FALSE,
-	P_LIMIT INT DEFAULT 20,
+	P_LIMIT INT DEFAULT CATALOG.PARAM_INT('search.default_limit'),
 	P_OFFSET INT DEFAULT 0,
 	P_TERRITORY_ID UUID DEFAULT NULL
 ) RETURNS TABLE (
@@ -1128,19 +1207,34 @@ CREATE OR REPLACE FUNCTION APP.FIND_BRANCHES (
 	DISTANCE_M FLOAT8,
 	RATING NUMERIC,
 	REVIEW_COUNT BIGINT,
-	IS_SPONSORED BOOLEAN
+	IS_SPONSORED BOOLEAN,
+	LOCATION GEOGRAPHY,
+	BRANCH_STATUS VARCHAR(30),
+	BUSINESS_STATUS VARCHAR(30)
 ) LANGUAGE PLPGSQL STABLE AS $$
 DECLARE q text := nullif(app.normalize(btrim(coalesce(p_text,''))),''); cg geography;
+ radius_m integer;
 BEGIN
- IF p_limit NOT BETWEEN 1 AND 100 OR p_offset NOT BETWEEN 0 AND 2000 THEN
+ IF p_limit IS NULL OR p_offset IS NULL OR p_limit NOT BETWEEN 1 AND 100 OR p_offset NOT BETWEEN 0 AND 2000 THEN
   RAISE EXCEPTION 'Paginacion invalida'; END IF;
  IF length(coalesce(p_text,''))>200 THEN RAISE EXCEPTION 'Texto demasiado largo'; END IF;
  IF p_radius_m IS NOT NULL AND (p_center IS NULL OR p_radius_m NOT BETWEEN 1 AND 50000) THEN
   RAISE EXCEPTION 'Radio invalido'; END IF;
- IF p_center IS NOT NULL AND (ST_SRID(p_center::geometry)<>4326 OR ST_GeometryType(p_center::geometry)<>'ST_Point') THEN
+ IF p_open_now IS NULL THEN RAISE EXCEPTION 'Filtro de apertura requerido'; END IF;
+ IF p_center IS NOT NULL AND (ST_SRID(p_center::geometry)<>4326 OR ST_GeometryType(p_center::geometry)<>'ST_Point'
+  OR ST_IsEmpty(p_center::geometry) OR ST_NDims(p_center::geometry)<>2) THEN
   RAISE EXCEPTION 'Centro debe ser Point SRID 4326'; END IF;
- IF p_bbox IS NOT NULL AND ST_SRID(p_bbox::geometry)<>4326 THEN RAISE EXCEPTION 'BBox requiere SRID 4326'; END IF;
+ IF p_bbox IS NOT NULL AND (ST_SRID(p_bbox::geometry)<>4326
+  OR ST_GeometryType(p_bbox::geometry)<>'ST_Polygon'
+  OR ST_IsEmpty(p_bbox::geometry) OR NOT ST_IsValid(p_bbox::geometry)
+  OR ST_NDims(p_bbox::geometry)<>2
+  OR NOT ST_Equals(p_bbox::geometry,ST_Envelope(p_bbox::geometry)))
+ THEN RAISE EXCEPTION 'BBox debe ser un rectangulo Polygon valido y no vacio, SRID 4326'; END IF;
  cg:=p_center;
+ radius_m:=CASE WHEN cg IS NULL THEN NULL
+  ELSE coalesce(p_radius_m,catalog.param_int('search.default_radius_m')) END;
+ IF cg IS NOT NULL AND (radius_m IS NULL OR radius_m NOT BETWEEN 1 AND 50000)
+ THEN RAISE EXCEPTION 'Radio predeterminado invalido'; END IF;
  RETURN QUERY
  WITH RECURSIVE cats(id) AS (
  SELECT p_category_id WHERE p_category_id IS NOT NULL
@@ -1157,11 +1251,11 @@ BEGIN
  UNION ALL SELECT app.normalize(ss.synonym) FROM app.search_synonym ss
  WHERE ss.active AND ss.locale LIKE 'es%' AND app.normalize(ss.term)=q
  ), candidates AS (
- SELECT pb.branch_id,pb.business_id,pb.trade_name,pb.branch_name,pb.location,
+ SELECT pb.branch_id,pb.business_id,pb.trade_name,pb.branch_name,pb.location,pb.branch_status,pb.business_status,
   CASE WHEN cg IS NULL THEN NULL ELSE ST_Distance(pb.location,cg) END AS dist
  FROM app.published_branch pb
  WHERE (p_bbox IS NULL OR ST_Intersects(pb.location,p_bbox))
- AND (p_radius_m IS NULL OR ST_DWithin(pb.location,cg,p_radius_m))
+ AND (radius_m IS NULL OR ST_DWithin(pb.location,cg,radius_m))
  AND (p_territory_id IS NULL OR EXISTS (
    SELECT 1 FROM app.branch branch JOIN territories t ON t.id=branch.territory_id
    WHERE branch.id=pb.branch_id
@@ -1176,7 +1270,8 @@ BEGIN
  )
  SELECT c.branch_id,c.business_id,c.trade_name,c.branch_name,c.dist,
   coalesce(r.avg_rating,0)::numeric(3,2),coalesce(r.n,0),
-  EXISTS(SELECT 1 FROM app.active_ads(now()) ads WHERE ads.branch_id=c.branch_id) AS sponsored
+  EXISTS(SELECT 1 FROM app.active_ads(now()) ads WHERE ads.branch_id=c.branch_id) AS sponsored,
+  c.location,c.branch_status,c.business_status
  FROM candidates c LEFT JOIN LATERAL(
   SELECT round(avg(rv.rating)::numeric,2) AS avg_rating,count(*) AS n FROM app.review rv
   WHERE rv.branch_id=c.branch_id AND rv.deleted_at IS NULL AND rv.moderation_status='visible') r ON true
@@ -1199,7 +1294,8 @@ CREATE OR REPLACE FUNCTION APP.AUTOCOMPLETE (P_PREFIX TEXT, P_LIMIT INTEGER DEFA
  AND app.normalize(s.synonym) LIKE app.normalize(p_prefix)||'%'
  ) x ORDER BY ord,name LIMIT greatest(1,least(p_limit,30)) $$;
 
--- Analitica: IP y user-agent perpetuos (sin borrado automatizado).
+-- Analitica: IP y user-agent conservados en PostgreSQL; el Worker Service de .NET
+-- invoca archive_events, consolidate_daily y consolidate_monthly con su propia planificacion.
 -- Separacion fisica activa / historica; operaciones atomicas de archivado semanal.
 CREATE TABLE APP.EVENT (
 	ID UUID PRIMARY KEY DEFAULT UUIDV7(),
@@ -1226,6 +1322,10 @@ CREATE INDEX EVENT_BRANCH_TIME ON APP.EVENT (BRANCH_ID, OCCURRED_AT)
 WHERE
 	BRANCH_ID IS NOT NULL;
 
+-- Coincide con los predicados del dashboard por anuncio y tipo.
+CREATE INDEX EVENT_AD_TYPE_IDX ON APP.EVENT ((METADATA->>'ad_id'), EVENT_TYPE)
+WHERE EVENT_TYPE IN ('ad_impression','ad_click');
+
 CREATE TABLE APP.EVENT_HIST (LIKE APP.EVENT INCLUDING ALL);
 
 -- Cambiar nombres de indices copiados: PostgreSQL asigna nombres distintos automaticamente.
@@ -1247,6 +1347,8 @@ CREATE TABLE APP.DAILY_METRIC (
 	TOTAL_COUNT BIGINT NOT NULL CHECK (TOTAL_COUNT >= 0),
 	UNIQUE NULLS NOT DISTINCT (METRIC_DATE, EVENT_TYPE, BUSINESS_ID, BRANCH_ID)
 );
+
+CREATE INDEX DAILY_METRIC_BRANCH_IDX ON APP.DAILY_METRIC (BRANCH_ID, METRIC_DATE);
 
 CREATE TABLE APP.MONTHLY_METRIC (
 	METRIC_MONTH DATE NOT NULL,
@@ -1412,8 +1514,8 @@ CREATE TABLE APP.AUDIT_LOG (
 	ID BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 	ENTITY_SCHEMA VARCHAR(63) NOT NULL,
 	ENTITY_TABLE VARCHAR(63) NOT NULL,
-	ENTITY_KEY VARCHAR(200) NOT NULL,
-	OPERATION CHAR(1) NOT NULL CHECK (OPERATION IN ('I', 'U', 'D')),
+	ENTITY_KEY TEXT NOT NULL,
+	OPERATION CHAR(1) NOT NULL CHECK (OPERATION IN ('I', 'U', 'D', 'T')),
 	ACTOR_USER_ID UUID,
 	CHANGED_AT TIMESTAMPTZ NOT NULL DEFAULT CLOCK_TIMESTAMP(),
 	TRANSACTION_ID XID8 NOT NULL DEFAULT PG_CURRENT_XACT_ID(),
@@ -1421,56 +1523,139 @@ CREATE TABLE APP.AUDIT_LOG (
 	NEW_VALUE JSONB
 );
 
-CREATE INDEX AUDIT_ENTITY_IDX ON APP.AUDIT_LOG (ENTITY_TABLE, ENTITY_KEY, CHANGED_AT DESC);
+CREATE INDEX AUDIT_ENTITY_IDX ON APP.AUDIT_LOG (ENTITY_SCHEMA, ENTITY_TABLE, MD5(ENTITY_KEY), CHANGED_AT DESC);
+
+-- Clave simple compatible con UUID; claves compuestas preservadas como JSON.
+-- Las tablas sin PK conservan la fila completa como identificador de respaldo.
+CREATE OR REPLACE FUNCTION APP.AUDIT_ENTITY_KEY (P_ROW JSONB, P_KEYS TEXT[])
+RETURNS TEXT LANGUAGE SQL IMMUTABLE AS $$
+ SELECT CASE WHEN coalesce(cardinality(p_keys),0)=0 THEN p_row::text
+  WHEN cardinality(p_keys)=1 THEN p_row->>p_keys[array_lower(p_keys,1)]
+  ELSE (SELECT jsonb_object_agg(k,p_row->k) FROM unnest(p_keys) k)::text END $$;
 
 CREATE OR REPLACE FUNCTION APP.CAPTURE_AUDIT () RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
-DECLARE a jsonb;b jsonb;k text;
+DECLARE a jsonb; b jsonb;
 BEGIN
- IF TG_OP='INSERT' THEN a:=NULL;b:=to_jsonb(NEW);
- ELSIF TG_OP='DELETE' THEN a:=to_jsonb(OLD);b:=NULL;
- ELSE a:=to_jsonb(OLD);b:=to_jsonb(NEW);END IF;
- k:=coalesce(b->>TG_ARGV[0],a->>TG_ARGV[0],'unknown');
- -- No duplicar imagen BYTEA dentro del JSON de auditoria.
- IF TG_TABLE_NAME='branch_photo' THEN
-  IF a IS NOT NULL THEN a:=a-'photo_data'; END IF;
-  IF b IS NOT NULL THEN b:=b-'photo_data'; END IF;
- END IF;
+ IF TG_OP='INSERT' THEN a:=NULL; b:=to_jsonb(NEW);
+ ELSIF TG_OP='DELETE' THEN a:=to_jsonb(OLD); b:=NULL;
+ ELSE a:=to_jsonb(OLD); b:=to_jsonb(NEW); END IF;
+ -- Cobertura completa: tambien se conserva photo_data en la instantanea BYTEA serializada.
  INSERT INTO app.audit_log(entity_schema,entity_table,entity_key,operation,actor_user_id,old_value,new_value)
- VALUES(TG_TABLE_SCHEMA,TG_TABLE_NAME,k,left(TG_OP,1),app.actor(),a,b);
- RETURN coalesce(NEW,OLD);
+ VALUES(TG_TABLE_SCHEMA,TG_TABLE_NAME,app.audit_entity_key(coalesce(b,a),TG_ARGV),
+        left(TG_OP,1),app.actor(),a,b);
+ RETURN NULL;
 END $$;
 
-CREATE TRIGGER BUSINESS_AUDIT
-AFTER INSERT OR UPDATE OR DELETE ON APP.BUSINESS FOR EACH ROW
-EXECUTE FUNCTION APP.CAPTURE_AUDIT ('id');
+CREATE OR REPLACE FUNCTION APP.CAPTURE_TRUNCATE_AUDIT ()
+RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
+BEGIN
+ -- TRUNCATE no dispara triggers por fila: capturar todas las filas ANTES de truncar.
+ EXECUTE format(
+  'INSERT INTO app.audit_log(entity_schema,entity_table,entity_key,operation,actor_user_id,old_value)
+   SELECT $1,$2,app.audit_entity_key(to_jsonb(r),$3),''T'',app.actor(),to_jsonb(r) FROM %I.%I r',
+  TG_TABLE_SCHEMA,TG_TABLE_NAME)
+ USING TG_TABLE_SCHEMA,TG_TABLE_NAME,TG_ARGV;
+ RETURN NULL;
+END $$;
 
-CREATE TRIGGER BRANCH_AUDIT
-AFTER INSERT OR UPDATE OR DELETE ON APP.BRANCH FOR EACH ROW
-EXECUTE FUNCTION APP.CAPTURE_AUDIT ('id');
+CREATE OR REPLACE FUNCTION APP.PROTECT_AUDIT_LOG ()
+RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
+BEGIN
+ -- El log es el destino de la auditoria, no se audita recursivamente.
+ -- Solo los triggers de captura insertan; UPDATE, DELETE y TRUNCATE siempre se rechazan.
+ IF TG_OP='INSERT' AND pg_trigger_depth()>1 THEN RETURN NEW; END IF;
+ RAISE EXCEPTION 'El registro de auditoria es inmutable y solo admite inserciones de captura';
+END $$;
 
-CREATE TRIGGER OWNER_AUDIT
-AFTER INSERT OR UPDATE OR DELETE ON APP.BUSINESS_OWNER FOR EACH ROW
-EXECUTE FUNCTION APP.CAPTURE_AUDIT ('id');
+CREATE TRIGGER AUDIT_LOG_IMMUTABLE
+BEFORE INSERT OR UPDATE OR DELETE ON APP.AUDIT_LOG
+FOR EACH ROW EXECUTE FUNCTION APP.PROTECT_AUDIT_LOG();
+CREATE TRIGGER AUDIT_LOG_NO_TRUNCATE
+BEFORE TRUNCATE ON APP.AUDIT_LOG
+FOR EACH STATEMENT EXECUTE FUNCTION APP.PROTECT_AUDIT_LOG();
 
-CREATE TRIGGER OWNER_IDENTITY_AUDIT
-AFTER INSERT OR UPDATE OR DELETE ON APP.OWNER_IDENTITY FOR EACH ROW
-EXECUTE FUNCTION APP.CAPTURE_AUDIT ('user_id');
+CREATE OR REPLACE FUNCTION APP.INSTALL_AUDIT_TRIGGERS (P_TABLE REGCLASS DEFAULT NULL)
+RETURNS VOID LANGUAGE PLPGSQL AS $$
+DECLARE r record; args text;
+BEGIN
+ FOR r IN
+  SELECT c.oid,c.relispartition,n.nspname,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE c.relkind IN ('r','p') AND c.relpersistence<>'t'
+   AND n.nspname NOT IN ('public','information_schema')
+   AND n.nspname !~ '^pg_' AND c.oid<>'app.audit_log'::regclass
+   AND (p_table IS NULL OR c.oid=p_table)
+  ORDER BY c.relispartition,c.oid
+ LOOP
+  SELECT string_agg(quote_literal(a.attname),',' ORDER BY k.ord) INTO args
+  FROM pg_index i CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attnum,ord)
+  JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum
+  WHERE i.indrelid=r.oid AND i.indisprimary;
+  args:=coalesce(args,'');
+  IF NOT r.relispartition OR NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=r.oid AND tgname='audit_capture_row') THEN
+   EXECUTE format(
+    'CREATE OR REPLACE TRIGGER audit_capture_row AFTER INSERT OR UPDATE OR DELETE ON %I.%I
+     FOR EACH ROW EXECUTE FUNCTION app.capture_audit(%s)',r.nspname,r.relname,args);
+  END IF;
+  IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=r.oid AND tgname='audit_capture_truncate') THEN
+   EXECUTE format(
+    'CREATE TRIGGER audit_capture_truncate BEFORE TRUNCATE ON %I.%I
+     FOR EACH STATEMENT EXECUTE FUNCTION app.capture_truncate_audit(%s)',r.nspname,r.relname,args);
+  END IF;
+ END LOOP;
+END $$;
 
-CREATE TRIGGER PHOTO_AUDIT
-AFTER INSERT OR UPDATE OR DELETE ON APP.BRANCH_PHOTO FOR EACH ROW
-EXECUTE FUNCTION APP.CAPTURE_AUDIT ('id');
+SELECT APP.INSTALL_AUDIT_TRIGGERS();
 
-CREATE TRIGGER REVIEW_AUDIT
-AFTER INSERT OR UPDATE OR DELETE ON APP.REVIEW FOR EACH ROW
-EXECUTE FUNCTION APP.CAPTURE_AUDIT ('id');
+-- Las tablas nuevas de las migraciones EF reciben cobertura automaticamente.
+-- Crear el event trigger requiere el usuario de inicializacion con privilegio de superusuario.
+CREATE OR REPLACE FUNCTION APP.AUDIT_NEW_TABLES ()
+RETURNS EVENT_TRIGGER LANGUAGE PLPGSQL AS $$
+DECLARE cmd record;
+BEGIN
+ FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
+  IF cmd.classid='pg_class'::regclass AND cmd.objsubid=0 THEN
+   PERFORM app.install_audit_triggers(cmd.objid::regclass);
+  END IF;
+ END LOOP;
+END $$;
 
-CREATE TRIGGER AD_AUDIT
-AFTER INSERT OR UPDATE OR DELETE ON APP.AD_PLACEMENT FOR EACH ROW
-EXECUTE FUNCTION APP.CAPTURE_AUDIT ('id');
+CREATE EVENT TRIGGER AUDIT_TABLE_COVERAGE ON DDL_COMMAND_END
+WHEN TAG IN ('CREATE TABLE','CREATE TABLE AS','SELECT INTO','ALTER TABLE')
+EXECUTE FUNCTION APP.AUDIT_NEW_TABLES();
 
-CREATE TRIGGER PARAM_AUDIT
-AFTER INSERT OR UPDATE OR DELETE ON CATALOG.PARAMETER_VALUE FOR EACH ROW
-EXECUTE FUNCTION APP.CAPTURE_AUDIT ('id');
+-- La validacion se difiere para permitir crear negocio, sucursal y categorias en una transaccion.
+-- No impone conservar sucursales despues de la publicacion.
+CREATE OR REPLACE FUNCTION APP.CHECK_PUBLICATION_CATEGORIES ()
+RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
+DECLARE bid uuid;
+BEGIN
+ IF TG_TABLE_NAME='business' THEN
+  bid:=NEW.id;
+ ELSE
+  bid:=NEW.business_id;
+ END IF;
+ IF EXISTS(SELECT 1 FROM app.business WHERE id=bid AND deleted_at IS NULL AND publication_status='published')
+ THEN
+  IF TG_TABLE_NAME='business' AND NOT EXISTS(
+   SELECT 1 FROM app.branch s JOIN app.branch_category bc ON bc.branch_id=s.id AND bc.active
+   JOIN catalog.category c ON c.id=bc.category_id AND c.active
+   WHERE s.business_id=bid AND s.deleted_at IS NULL)
+  THEN RAISE EXCEPTION 'Publicacion requiere al menos una categoria vigente'; END IF;
+  IF EXISTS(SELECT 1 FROM app.branch s WHERE s.business_id=bid AND s.deleted_at IS NULL
+   AND NOT EXISTS(SELECT 1 FROM app.branch_category bc JOIN catalog.category c ON c.id=bc.category_id AND c.active
+    WHERE bc.branch_id=s.id AND bc.active))
+  THEN RAISE EXCEPTION 'Cada sucursal publicada requiere categoria vigente'; END IF;
+ END IF;
+ RETURN NULL;
+END $$;
+
+CREATE CONSTRAINT TRIGGER BUSINESS_PUBLICATION_CATEGORY
+AFTER INSERT OR UPDATE OF PUBLICATION_STATUS ON APP.BUSINESS
+DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION APP.CHECK_PUBLICATION_CATEGORIES();
+
+CREATE CONSTRAINT TRIGGER BRANCH_PUBLICATION_CATEGORY
+AFTER INSERT OR UPDATE OF BUSINESS_ID, DELETED_AT ON APP.BRANCH
+DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION APP.CHECK_PUBLICATION_CATEGORIES();
 
 -- Operaciones del dashboard (la identidad de administrador se valida en el backend).
 CREATE OR REPLACE FUNCTION APP.ADMIN_UPDATE_BUSINESS (
@@ -1488,8 +1673,6 @@ END $$;
 
 CREATE OR REPLACE FUNCTION APP.ADMIN_PUBLISH_BUSINESS (P_BUSINESS_ID UUID, P_ACTOR UUID) RETURNS VOID LANGUAGE PLPGSQL AS $$
 BEGIN
- IF NOT EXISTS(SELECT 1 FROM app.branch WHERE business_id=p_business_id AND deleted_at IS NULL) THEN
-  RAISE EXCEPTION 'No se puede publicar un negocio sin sucursales'; END IF;
  UPDATE app.business SET publication_status='published',updated_by_user_id=p_actor
  WHERE id=p_business_id AND deleted_at IS NULL;
  IF NOT FOUND THEN RAISE EXCEPTION 'Negocio no encontrado'; END IF;
@@ -1521,7 +1704,6 @@ BEGIN
  IF NOT p_is_admin AND NOT app.owner_is_verified(p_actor,bid) THEN RAISE EXCEPTION 'Permiso denegado'; END IF;
  IF NOT EXISTS(SELECT 1 FROM app.branch_photo WHERE id=p_photo_id AND branch_id=p_branch_id AND deleted_at IS NULL) THEN
   RAISE EXCEPTION 'Foto inexistente'; END IF;
- UPDATE app.branch_photo SET is_primary=false WHERE branch_id=p_branch_id AND is_primary AND deleted_at IS NULL;
  UPDATE app.branch_photo SET is_primary=true WHERE id=p_photo_id;
 END $$;
 
@@ -1766,14 +1948,6 @@ VALUES
 		'true',
 		NULL,
 		NULL
-	),
-	(
-		'branch.require_one',
-		'Cada negocio requiere sucursal',
-		'boolean',
-		'true',
-		NULL,
-		NULL
 	);
 
 INSERT INTO
@@ -1782,8 +1956,18 @@ VALUES
 	('restaurants', 'Restaurantes', 10),
 	('stores', 'Tiendas', 20),
 	('services', 'Servicios', 30),
-	('health', 'Salud y Bienestar', 40),
+	('health', 'Salud', 40),
 	('hotels', 'Hoteles', 50);
+
+INSERT INTO CATALOG.CATEGORY (CODE, NAME, PARENT_ID, SORT_ORDER)
+SELECT v.code,v.name,h.id,v.sort_order
+FROM CATALOG.CATEGORY h CROSS JOIN (VALUES
+ ('hospital','Hospitales y Clinicas',10),
+ ('clinic','Centros y Laboratorios Clinicos',20),
+ ('clinic','Consultorios y Policonsultorios',20),
+ ('pharmacy','Farmacias y droguerias',30)
+) v(code,name,sort_order)
+WHERE h.code='health';
 
 INSERT INTO
 	CATALOG.SERVICE (CODE, NAME, SORT_ORDER)
@@ -1804,7 +1988,7 @@ INSERT INTO
 VALUES
 	('cash', 'Efectivo', 10),
 	('qr', 'QR', 20),
-	('card', 'Tarjeta', 30),
+	('card', 'Tarjeta de Credito/Debito', 30),
 	('transfer', 'Transferencia', 40);
 
 -- Microsoft.AspNetCore.Identity.EntityFrameworkCore
