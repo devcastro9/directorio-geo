@@ -1964,7 +1964,7 @@ SELECT v.code,v.name,h.id,v.sort_order
 FROM CATALOG.CATEGORY h CROSS JOIN (VALUES
  ('hospital','Hospitales y Clinicas',10),
  ('clinic','Centros y Laboratorios Clinicos',20),
- ('clinic','Consultorios y Policonsultorios',20),
+ ('medical_office','Consultorios y Policonsultorios',20),
  ('pharmacy','Farmacias y droguerias',30)
 ) v(code,name,sort_order)
 WHERE h.code='health';
