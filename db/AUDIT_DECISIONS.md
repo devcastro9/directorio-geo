@@ -4,8 +4,8 @@ Alcance confirmado el 12 de noviembre de 2026.
 
 ## Producto
 
-- Solo Bolivia; ubicaciones y limites territoriales persistidos como geography SRID 4326.
-- Los poligonos son infraestructura interna para el MVP. El usuario final no dibuja ni administra SRID. Es posible que el usuario interno si pueda administrar poligonos.
+- Solo Bolivia; ubicaciones y limites territoriales persistidos como geography SRID 4326. No habra soporte internacional.
+- Los poligonos son infraestructura interna para el MVP. El usuario final no dibuja ni administra SRID. Es posible que el usuario interno si pueda administrar poligonos post MVP.
 - Publicidad, resenas, respuestas y favoritos permanecen disponibles en el esquema del MVP.
 - Se registran los pagos de la suscripcion para el sistema y tipo de suscripcion en base de datos.
 - Fotos y su historial permanecen en PostgreSQL, sin migracion a almacenamiento externo.
