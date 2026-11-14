@@ -5,8 +5,9 @@ Alcance confirmado el 12 de noviembre de 2026.
 ## Producto
 
 - Solo Bolivia; ubicaciones y limites territoriales persistidos como geography SRID 4326.
-- Los poligonos son infraestructura interna. El usuario no dibuja ni administra SRID.
+- Los poligonos son infraestructura interna para el MVP. El usuario final no dibuja ni administra SRID. Es posible que el usuario interno si pueda administrar poligonos.
 - Publicidad, resenas, respuestas y favoritos permanecen disponibles en el esquema del MVP.
+- Se registran los pagos de la suscripcion para el sistema y tipo de suscripcion en base de datos.
 - Fotos y su historial permanecen en PostgreSQL, sin migracion a almacenamiento externo.
 - Se permiten varias sucursales por negocio y varias fotos por sucursal o negocio.
 - Se permite conservar un negocio sin sucursales y dar de baja la ultima sucursal.
@@ -14,16 +15,16 @@ Alcance confirmado el 12 de noviembre de 2026.
 - Frontend y backend suministran las ubicaciones de los usuarios. Este SQL no obtiene la posicion del dispositivo
   ni convierte una direccion en coordenadas.
 - Rutas e isocronas se evaluaran despues del MVP mediante infraestructura interna.
-  La cercania actual es distancia geodesica, no tiempo de viaje.
 - Full-text y control optimista de versiones quedan para evaluacion posterior.
 - No se agregan validaciones territoriales, formatos de contacto o contratos de accesibilidad.
 - No se cambia el algoritmo general de busqueda por rendimiento (E2 aplazado).
   Los indices ajustados resuelven expresiones y accesos identificados en E3-E6;
   su beneficio cuantitativo requiere medicion con una carga representativa.
+- Los catalogos pueden tener baja logica, pero no tener borrado fisico.
 
 ## Publicacion y consulta
 
-Las categorias Hospitales, Clinicas y Farmacias son hijas de Salud y Bienestar.
+Las categorias Hospitales, Clinicas, Farmacias, etc son hijas de Salud.
 La publicacion exige categoria vigente y cada sucursal que se crea o restaura en un negocio
 publicado debe tener una categoria vigente al terminar la transaccion.
 Por eso `app.create_business_with_branch` recibe `p_category_ids uuid[]` y las inserta
@@ -86,7 +87,7 @@ Este cambio no implementa ni programa ese servicio, ni modifica la retencion aco
 Todas las tablas persistentes de usuario fuera de public tienen captura por fila.
 Se excluyen catalogos internos de PostgreSQL, tablas temporales y el propio destino
 `app.audit_log`. El destino se protege contra INSERT directo, UPDATE, DELETE y TRUNCATE;
-no se registra recursivamente su propia insercion.
+no se registra recursivamente su propia insercion ni modificacion ni borrado.
 
 Se registran imagenes completas anterior/posterior, incluyendo los bytes de las fotos
 serializados en JSONB. Se capturan INSERT, UPDATE y DELETE, incluidas las acciones de
@@ -106,7 +107,7 @@ solo por usar los triggers ya instalados. El propietario de las tablas o un supe
 puede alterar/deshabilitar triggers: esta auditoria no es una defensa frente al administrador.
 
 El backend y el Worker Service deben usar una transaccion y establecer
-`SET LOCAL bolivianegocios.actor_id = 'uuid'` cuando exista un actor autenticado.
+`SET LOCAL cofre.actor_id = 'uuid'` cuando exista un actor autenticado.
 Los procesos sin usuario pueden dejar actor nulo. Los privilegios se derivan de la
 identidad autenticada del backend, no de campos enviados por el cliente.
 
