@@ -4,9 +4,14 @@ Alcance confirmado el 12 de noviembre de 2026.
 
 ## Producto
 
+- Todas las tablas persistentes fuera de public, excepto audit_log, event, event_hist, daily_metric y monthly_metric, incluyen created_by_user_id, updated_by_user_id, deleted_by_user_id, created_at, updated_at y deleted_at. Los identificadores de usuario son UUID sin clave foranea; review agrega moderated_at y moderated_by_user_id sin FK.
+- business conserva un unico status de publicacion con FK a catalog.business_status. Se retiran publication_status, el estado operativo duplicado y price_level. branch.status usa catalog.branch_status.
+- La propiedad N:N se registra en app.business_owner: una asociacion unica por business_id/user_id con baja logica. El backend autentica/verifica las cuentas y USER_ID no tiene FK a Identity. IS_BUSINESS_OWNER exige asociacion y negocio vigentes; no se conserva owner_user_id en business ni owner_identity.
+- catalog.service_product distingue S/P; app.branch_service_product asocia la oferta y app.service_product_price guarda precios por sucursal. branch no almacena precios agregados ni caracteristicas duplicadas: estas se registran en branch_feature.
+
 - Solo Bolivia; ubicaciones y limites territoriales persistidos como geography SRID 4326. No habra soporte internacional.
 - Los poligonos son infraestructura interna para el MVP. El usuario final no dibuja ni administra SRID. Es posible que el usuario interno si pueda administrar poligonos post MVP.
-- Publicidad, resenas, respuestas y favoritos permanecen disponibles en el esquema del MVP.
+- Publicidad, resenas, respuestas y favoritos permanecen disponibles en el esquema del MVP. La unica respuesta de propietario se integra en app.review (reply_text, reply_by_user_id y replied_at); REPLY_TO_REVIEW devuelve el ID de la resena. Holiday y search_synonym residen en catalog y conservan sus consumidores de horarios y busqueda.
 - Se registran los pagos de la suscripcion para el sistema y tipo de suscripcion en base de datos.
 - Fotos y su historial permanecen en PostgreSQL, sin migracion a almacenamiento externo.
 - Se permiten varias sucursales por negocio y varias fotos por sucursal o negocio.
@@ -36,7 +41,7 @@ Estas comprobaciones de publicacion no obligan a conservar sucursales despues de
 No se agrega validacion continua de los cambios de jerarquia o desactivacion de categorias.
 
 `app.find_branches` conserva el orden: patrocinado, relevancia textual, distancia e ID.
-Incluye `location geography`, `branch_status` y `business_status`.
+Incluye `location geography`, `branch_status` operativo y `business_status` de publicacion.
 Los cierres temporales siguen visibles con su estado; los permanentes no aparecen.
 La publicidad aplica tambien la exclusion de cierres permanentes.
 El backend serializara las coordenadas para el mapa sin consultas por cada resultado.
@@ -97,10 +102,7 @@ TRUNCATE toma una instantanea de cada fila antes de eliminarla, con operacion T.
 Las operaciones rechazadas no modifican datos y no generan un registro confirmado.
 Un ROLLBACK revierte tanto el cambio como su auditoria.
 
-Las claves simples usan el valor de PK; las compuestas usan un objeto JSON.
-Sin PK se conserva la fila como identificador. La clave es TEXT y el indice usa su MD5
-junto con esquema, tabla y fecha para admitir claves extensas.
-Al consultar por clave se debe comparar tambien el texto completo, ademas del hash.
+audit_log conserva exactamente id, entity_schema, entity_table, operation, transaction_id, old_value, new_value, created_by_user_id y created_at. Las claves se consultan dentro de las instantaneas JSONB; no existen entity_key, actor_user_id ni changed_at.
 
 El event trigger instala cobertura en tablas nuevas o alteradas por migraciones.
 Su instalacion requiere superusuario; este privilegio no es necesario en el backend
@@ -109,7 +111,7 @@ puede alterar/deshabilitar triggers: esta auditoria no es una defensa frente al 
 
 El backend y el Worker Service deben usar una transaccion y establecer
 `SET LOCAL cofre.actor_id = 'uuid'` cuando exista un actor autenticado.
-Los procesos sin usuario pueden dejar actor nulo. Los privilegios se derivan de la
+Los procesos sin usuario registran el UUID reservado del sistema 00000000-0000-0000-0000-000000000000; created_by_user_id de audit_log es obligatorio. Los privilegios se derivan de la
 identidad autenticada del backend, no de campos enviados por el cliente.
 
 ## Aplicacion y verificacion

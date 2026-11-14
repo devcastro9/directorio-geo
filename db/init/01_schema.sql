@@ -35,12 +35,12 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION APP.ACTOR () RETURNS UUID LANGUAGE SQL STABLE AS $$
- SELECT coalesce(nullif(current_setting('cofre.actor_id', true), ''),
-  nullif(current_setting('bolivianegocios.actor_id', true), ''))::UUID $$;
+ SELECT coalesce(nullif(current_setting('cofre.actor_id', true), '')::UUID,
+  '00000000-0000-0000-0000-000000000000'::UUID) $$;
 
 -- El backend debe establecer SET LOCAL cofre.actor_id = 'ID_DEL_USUARIO'
 -- en la misma transaccion, tambien desde el Worker Service cuando exista actor.
--- bolivianegocios.actor_id se conserva como fallback para consumidores existentes.
+-- Sin actor configurado se usa el UUID reservado del sistema (todos ceros).
 -- Identidad y roles se validan en el backend; los argumentos p_is_admin no vienen del cliente.
 -- Catalogos independientes; solo las categorias admiten jerarquia.
 CREATE TABLE CATALOG.CATEGORY (
@@ -636,7 +636,6 @@ CREATE TABLE APP.BUSINESS (
 	SLUG VARCHAR(160) UNIQUE,
 	LEGAL_NAME VARCHAR(250),
 	TRADE_NAME VARCHAR(200) NOT NULL,
- OWNER_USER_ID UUID, -- Cuenta responsable validada por el backend; sin FK a Identity.
 	TAX_ID VARCHAR(50) UNIQUE,
 	DESCRIPTION TEXT,
 	STATUS VARCHAR(20) NOT NULL DEFAULT 'draft' REFERENCES CATALOG.BUSINESS_STATUS (CODE),
@@ -659,6 +658,21 @@ CREATE TABLE APP.BUSINESS (
 CREATE TRIGGER BUSINESS_TOUCH
 BEFORE UPDATE ON APP.BUSINESS FOR EACH ROW
 EXECUTE FUNCTION APP.TOUCH ();
+
+-- Propiedad N:N. El backend valida las cuentas; los UUID de usuario no tienen FK a Identity.
+CREATE TABLE APP.BUSINESS_OWNER (
+ ID UUID PRIMARY KEY DEFAULT UUIDV7(),
+ BUSINESS_ID UUID NOT NULL REFERENCES APP.BUSINESS (ID),
+ USER_ID UUID NOT NULL,
+ CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
+ UPDATED_BY_USER_ID UUID,
+ DELETED_BY_USER_ID UUID,
+ CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ DELETED_AT TIMESTAMPTZ,
+ UNIQUE (BUSINESS_ID, USER_ID)
+);
+CREATE INDEX OWNER_USER_IDX ON APP.BUSINESS_OWNER (USER_ID, BUSINESS_ID) WHERE DELETED_AT IS NULL;
 
 -- Suscripcion del negocio al sistema, independiente del pago de publicidad.
 -- El importe acordado se conserva aunque cambie el catalogo de tipos.
@@ -778,13 +792,12 @@ EXECUTE FUNCTION APP.AUTO_TERRITORY ();
 -- Un negocio puede conservarse sin sucursales. No se exige una sucursal principal.
 
 -- La autenticacion y verificacion de cuentas corresponden al backend.
--- Un negocio puede estar sin reclamar (owner_user_id nulo).
+-- Un negocio sin asociaciones vigentes puede reclamarse mediante un flujo autorizado del backend.
 CREATE OR REPLACE FUNCTION APP.IS_BUSINESS_OWNER (P_USER_ID UUID, P_BUSINESS_ID UUID)
 RETURNS BOOLEAN LANGUAGE SQL STABLE AS $$
- SELECT EXISTS(SELECT 1 FROM app.business
-  WHERE id=p_business_id AND owner_user_id=p_user_id AND deleted_at IS NULL) $$;
-
-CREATE INDEX BUSINESS_OWNER_USER_IDX ON APP.BUSINESS (OWNER_USER_ID) WHERE DELETED_AT IS NULL;
+ SELECT EXISTS(SELECT 1 FROM app.business_owner o JOIN app.business b ON b.id=o.business_id
+  WHERE o.business_id=p_business_id AND o.user_id=p_user_id
+   AND o.deleted_at IS NULL AND b.deleted_at IS NULL) $$;
 
 -- Creacion y publicacion atomica; el backend autentica y verifica p_user_id antes de invocar.
 CREATE OR REPLACE FUNCTION APP.CREATE_BUSINESS_WITH_BRANCH (
@@ -805,8 +818,9 @@ BEGIN
   SELECT 1 FROM unnest(p_category_ids) x(id)
   WHERE NOT EXISTS (SELECT 1 FROM catalog.category c WHERE c.id=x.id AND c.active)
  ) THEN RAISE EXCEPTION 'Se requiere al menos una categoria vigente'; END IF;
- INSERT INTO app.business(trade_name,description,status,owner_user_id,created_by_user_id)
- VALUES(p_trade_name,p_description,'published',p_user_id,p_user_id) RETURNING id INTO bid;
+ INSERT INTO app.business(trade_name,description,status,created_by_user_id)
+ VALUES(p_trade_name,p_description,'published',p_user_id) RETURNING id INTO bid;
+ INSERT INTO app.business_owner(business_id,user_id,created_by_user_id) VALUES(bid,p_user_id,p_user_id);
  INSERT INTO app.branch(business_id,name,address,location,territory_id,is_primary)
  VALUES(bid,p_branch_name,p_address,ST_SetSRID(ST_MakePoint(p_lon,p_lat),4326)::geography,p_territory_id,true) RETURNING id INTO sid;
  INSERT INTO app.branch_category(branch_id,category_id)
@@ -948,7 +962,7 @@ CREATE INDEX OPENING_HOUR_IDX ON APP.OPENING_HOUR (BRANCH_ID, WEEKDAY)
 WHERE
 	ACTIVE;
 
-CREATE TABLE APP.HOLIDAY (
+CREATE TABLE CATALOG.HOLIDAY (
 	ID UUID PRIMARY KEY DEFAULT UUIDV7(),
 	NAME VARCHAR(150) NOT NULL,
 	HOLIDAY_DATE DATE NOT NULL,
@@ -964,7 +978,7 @@ CREATE TABLE APP.HOLIDAY (
 	UNIQUE NULLS NOT DISTINCT (HOLIDAY_DATE, TERRITORY_ID, NAME)
 );
 
-CREATE INDEX HOLIDAY_DATE_IDX ON APP.HOLIDAY (HOLIDAY_DATE)
+CREATE INDEX HOLIDAY_DATE_IDX ON CATALOG.HOLIDAY (HOLIDAY_DATE)
 WHERE
 	ACTIVE;
 
@@ -1013,7 +1027,7 @@ RETURNS BOOLEAN LANGUAGE SQL STABLE AS $$
   SELECT t.id,t.parent_id FROM geo.territory t JOIN ancestors a ON t.id=a.parent_id
  )
  SELECT EXISTS (
-  SELECT 1 FROM app.holiday h WHERE h.active
+  SELECT 1 FROM CATALOG.holiday h WHERE h.active
   AND (h.territory_id IS NULL OR h.territory_id IN (SELECT id FROM ancestors))
   AND (h.holiday_date=p_day OR (h.recurring_annually
     AND extract(month FROM h.holiday_date)=extract(month FROM p_day)
@@ -1216,6 +1230,9 @@ CREATE TABLE APP.REVIEW (
 	MODERATION_STATUS VARCHAR(20) NOT NULL DEFAULT
 		(CASE WHEN CATALOG.PARAM_BOOL('review.moderation_post') THEN 'visible' ELSE 'hidden' END) REFERENCES CATALOG.REVIEW_MODERATION_STATUS (CODE),
 	MODERATION_REASON TEXT,
+	REPLY_TEXT TEXT,
+	REPLY_BY_USER_ID UUID,
+	REPLIED_AT TIMESTAMPTZ,
 	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
 	UPDATED_BY_USER_ID UUID,
 	DELETED_BY_USER_ID UUID,
@@ -1223,7 +1240,9 @@ CREATE TABLE APP.REVIEW (
 	UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	DELETED_AT TIMESTAMPTZ,
 	MODERATED_AT TIMESTAMPTZ,
-	MODERATED_BY_USER_ID UUID
+	MODERATED_BY_USER_ID UUID,
+	CHECK ((REPLY_TEXT IS NULL AND REPLY_BY_USER_ID IS NULL AND REPLIED_AT IS NULL)
+	 OR (REPLY_TEXT IS NOT NULL AND BTRIM(REPLY_TEXT) <> '' AND REPLY_BY_USER_ID IS NOT NULL AND REPLIED_AT IS NOT NULL))
 );
 
 CREATE INDEX REVIEW_BRANCH_IDX ON APP.REVIEW (BRANCH_ID, MODERATION_STATUS, CREATED_AT DESC)
@@ -1238,36 +1257,19 @@ CREATE TRIGGER REVIEW_TOUCH
 BEFORE UPDATE ON APP.REVIEW FOR EACH ROW
 EXECUTE FUNCTION APP.TOUCH ();
 
-CREATE TABLE APP.REVIEW_REPLY (
-	ID UUID PRIMARY KEY DEFAULT UUIDV7(),
-	REVIEW_ID UUID NOT NULL UNIQUE REFERENCES APP.REVIEW (ID),
-	OWNER_USER_ID UUID NOT NULL,
-	REPLY_TEXT TEXT NOT NULL,
-	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
-	UPDATED_BY_USER_ID UUID,
-	DELETED_BY_USER_ID UUID,
-	CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	DELETED_AT TIMESTAMPTZ,
-	CHECK (BTRIM(REPLY_TEXT) <> '')
-);
-
-CREATE TRIGGER REVIEW_REPLY_TOUCH
-BEFORE UPDATE ON APP.REVIEW_REPLY FOR EACH ROW
-EXECUTE FUNCTION APP.TOUCH ();
-
+-- La respuesta se guarda en la misma fila de la resena; devuelve el ID de la resena.
 CREATE OR REPLACE FUNCTION APP.REPLY_TO_REVIEW (P_REVIEW_ID UUID, P_USER_ID UUID, P_TEXT TEXT) RETURNS UUID LANGUAGE PLPGSQL AS $$
-DECLARE bid uuid; rid uuid;
+DECLARE bid uuid;
 BEGIN
  SELECT b.business_id INTO STRICT bid FROM app.review r JOIN app.branch b ON b.id=r.branch_id
- WHERE r.id=p_review_id AND r.deleted_at IS NULL;
+ WHERE r.id=p_review_id AND r.deleted_at IS NULL AND b.deleted_at IS NULL;
  IF NOT app.is_business_owner(p_user_id,bid) THEN RAISE EXCEPTION 'No es propietario'; END IF;
- INSERT INTO app.review_reply(review_id,owner_user_id,reply_text) VALUES(p_review_id,p_user_id,p_text)
- ON CONFLICT(review_id) DO UPDATE SET reply_text=excluded.reply_text,owner_user_id=excluded.owner_user_id,
- deleted_at=NULL RETURNING id INTO rid;
- RETURN rid;
+ IF p_text IS NULL OR btrim(p_text)='' THEN RAISE EXCEPTION 'Respuesta requerida'; END IF;
+ UPDATE app.review SET reply_text=p_text,reply_by_user_id=p_user_id,replied_at=clock_timestamp()
+ WHERE id=p_review_id AND deleted_at IS NULL;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Resena no encontrada'; END IF;
+ RETURN p_review_id;
 END $$;
-
 CREATE TABLE APP.FAVORITE (
 	USER_ID UUID NOT NULL,
 	BRANCH_ID UUID NOT NULL REFERENCES APP.BRANCH (ID),
@@ -1369,7 +1371,7 @@ CREATE OR REPLACE FUNCTION APP.UNACCENT_FIXED (P_TEXT TEXT) RETURNS TEXT LANGUAG
 CREATE OR REPLACE FUNCTION APP.NORMALIZE (P_TEXT TEXT) RETURNS TEXT LANGUAGE SQL IMMUTABLE PARALLEL SAFE AS $$ SELECT lower(app.unaccent_fixed(coalesce(p_text,''))) $$;
 
 -- Sinonimos espanoles y autocompletado.
-CREATE TABLE APP.SEARCH_SYNONYM (
+CREATE TABLE CATALOG.SEARCH_SYNONYM (
 	ID UUID PRIMARY KEY DEFAULT UUIDV7(),
 	TERM VARCHAR(150) NOT NULL,
 	SYNONYM VARCHAR(150) NOT NULL,
@@ -1393,10 +1395,10 @@ WHERE
 	DELETED_AT IS NULL;
 
 -- Las expresiones coinciden con las usadas por busqueda y autocompletado.
-CREATE INDEX SYNONYM_TERM_IDX ON APP.SEARCH_SYNONYM (APP.NORMALIZE(TERM))
+CREATE INDEX SYNONYM_TERM_IDX ON CATALOG.SEARCH_SYNONYM (APP.NORMALIZE(TERM))
 WHERE ACTIVE;
 
-CREATE INDEX SYNONYM_AUTOCOMPLETE_IDX ON APP.SEARCH_SYNONYM
+CREATE INDEX SYNONYM_AUTOCOMPLETE_IDX ON CATALOG.SEARCH_SYNONYM
 USING GIN (APP.NORMALIZE(SYNONYM) GIN_TRGM_OPS) WHERE ACTIVE;
 
 CREATE INDEX CATEGORY_NAME_TRGM_IDX ON CATALOG.CATEGORY
@@ -1485,7 +1487,7 @@ BEGIN
  WHERE child.active
  ), synonyms AS (
  SELECT q AS term WHERE q IS NOT NULL
- UNION ALL SELECT app.normalize(ss.synonym) FROM app.search_synonym ss
+ UNION ALL SELECT app.normalize(ss.synonym) FROM CATALOG.search_synonym ss
  WHERE ss.active AND ss.locale LIKE 'es%' AND app.normalize(ss.term)=q
  ), candidates AS (
  SELECT pb.branch_id,pb.business_id,pb.trade_name,pb.branch_name,pb.location,pb.branch_status,pb.business_status,
@@ -1527,7 +1529,7 @@ CREATE OR REPLACE FUNCTION APP.AUTOCOMPLETE (P_PREFIX TEXT, P_LIMIT INTEGER DEFA
  SELECT DISTINCT c.name,'category',1 FROM catalog.category c WHERE c.active
  AND app.normalize(c.name) LIKE app.normalize(p_prefix)||'%'
  UNION ALL
- SELECT DISTINCT s.synonym,'synonym',2 FROM app.search_synonym s WHERE s.active
+ SELECT DISTINCT s.synonym,'synonym',2 FROM CATALOG.search_synonym s WHERE s.active
  AND app.normalize(s.synonym) LIKE app.normalize(p_prefix)||'%'
  ) x ORDER BY ord,name LIMIT greatest(1,least(p_limit,30)) $$;
 
@@ -1548,13 +1550,7 @@ CREATE TABLE APP.EVENT (
 	TERRITORY_ID UUID,
 	QUERY_TEXT TEXT,
 	SOURCE_REF TEXT,
-	METADATA JSONB NOT NULL DEFAULT '{}'::JSONB,
-	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
-	UPDATED_BY_USER_ID UUID,
-	DELETED_BY_USER_ID UUID,
-	CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	DELETED_AT TIMESTAMPTZ
+	METADATA JSONB NOT NULL DEFAULT '{}'::JSONB
 );
 
 CREATE INDEX EVENT_TIME_BRIN ON APP.EVENT USING BRIN (OCCURRED_AT);
@@ -1575,7 +1571,7 @@ CREATE TABLE APP.EVENT_HIST (LIKE APP.EVENT INCLUDING ALL);
 CREATE OR REPLACE FUNCTION APP.ARCHIVE_EVENTS (P_CUTOFF TIMESTAMPTZ DEFAULT NULL) RETURNS BIGINT LANGUAGE PLPGSQL AS $$
 DECLARE n bigint; cutoff timestamptz := coalesce(p_cutoff,now()-make_interval(days=>catalog.param_int('analytics.archive_after_days')));
 BEGIN
- PERFORM pg_advisory_xact_lock(hashtext('bolivianegocios.archive_events'));
+ PERFORM pg_advisory_xact_lock(hashtext('cofre.archive_events'));
  WITH moved AS (DELETE FROM app.event WHERE occurred_at<cutoff RETURNING *)
  INSERT INTO app.event_hist SELECT * FROM moved;
  GET DIAGNOSTICS n=ROW_COUNT; RETURN n;
@@ -1588,12 +1584,6 @@ CREATE TABLE APP.DAILY_METRIC (
 	BUSINESS_ID UUID,
 	BRANCH_ID UUID,
 	TOTAL_COUNT BIGINT NOT NULL CHECK (TOTAL_COUNT >= 0),
-	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
-	UPDATED_BY_USER_ID UUID,
-	DELETED_BY_USER_ID UUID,
-	CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	DELETED_AT TIMESTAMPTZ,
 	UNIQUE NULLS NOT DISTINCT (METRIC_DATE, EVENT_TYPE, BUSINESS_ID, BRANCH_ID)
 );
 
@@ -1605,12 +1595,6 @@ CREATE TABLE APP.MONTHLY_METRIC (
 	BUSINESS_ID UUID,
 	BRANCH_ID UUID,
 	TOTAL_COUNT BIGINT NOT NULL CHECK (TOTAL_COUNT >= 0),
-	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
-	UPDATED_BY_USER_ID UUID,
-	DELETED_BY_USER_ID UUID,
-	CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	DELETED_AT TIMESTAMPTZ,
 	CHECK (
 		METRIC_MONTH = DATE_TRUNC('month', METRIC_MONTH)::DATE
 	),
@@ -1621,7 +1605,7 @@ CREATE OR REPLACE FUNCTION APP.CONSOLIDATE_DAILY (P_DAY DATE) RETURNS BIGINT LAN
 DECLARE n bigint; t0 timestamptz:=p_day::timestamp AT TIME ZONE 'America/La_Paz';
  t1 timestamptz:=(p_day+1)::timestamp AT TIME ZONE 'America/La_Paz';
 BEGIN
- PERFORM pg_advisory_xact_lock(hashtext('bolivianegocios.daily.'||p_day::text));
+ PERFORM pg_advisory_xact_lock(hashtext('cofre.daily.'||p_day::text));
  DELETE FROM app.daily_metric WHERE metric_date=p_day;
  INSERT INTO app.daily_metric(metric_date,event_type,business_id,branch_id,total_count)
  SELECT p_day,e.event_type,e.business_id,e.branch_id,count(*)
@@ -1634,7 +1618,7 @@ END $$;
 CREATE OR REPLACE FUNCTION APP.CONSOLIDATE_MONTHLY (P_DAY DATE) RETURNS BIGINT LANGUAGE PLPGSQL AS $$
 DECLARE m date:=date_trunc('month',p_day)::date; n bigint;
 BEGIN
- PERFORM pg_advisory_xact_lock(hashtext('bolivianegocios.monthly.'||m::text));
+ PERFORM pg_advisory_xact_lock(hashtext('cofre.monthly.'||m::text));
  DELETE FROM app.monthly_metric WHERE metric_month=m;
  INSERT INTO app.monthly_metric(metric_month,event_type,business_id,branch_id,total_count)
  SELECT m,event_type,business_id,branch_id,sum(total_count) FROM app.daily_metric
@@ -1769,30 +1753,15 @@ CREATE TABLE APP.AUDIT_LOG (
 	ID BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 	ENTITY_SCHEMA VARCHAR(63) NOT NULL,
 	ENTITY_TABLE VARCHAR(63) NOT NULL,
-	ENTITY_KEY TEXT NOT NULL,
 	OPERATION CHAR(1) NOT NULL CHECK (OPERATION IN ('I', 'U', 'D', 'T')),
-	ACTOR_USER_ID UUID,
-	CHANGED_AT TIMESTAMPTZ NOT NULL DEFAULT CLOCK_TIMESTAMP(),
 	TRANSACTION_ID XID8 NOT NULL DEFAULT PG_CURRENT_XACT_ID(),
 	OLD_VALUE JSONB,
 	NEW_VALUE JSONB,
-	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
-	UPDATED_BY_USER_ID UUID,
-	DELETED_BY_USER_ID UUID,
-	CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	DELETED_AT TIMESTAMPTZ
+	CREATED_BY_USER_ID UUID NOT NULL DEFAULT APP.ACTOR(),
+	CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX AUDIT_ENTITY_IDX ON APP.AUDIT_LOG (ENTITY_SCHEMA, ENTITY_TABLE, MD5(ENTITY_KEY), CHANGED_AT DESC);
-
--- Clave simple compatible con UUID; claves compuestas preservadas como JSON.
--- Las tablas sin PK conservan la fila completa como identificador de respaldo.
-CREATE OR REPLACE FUNCTION APP.AUDIT_ENTITY_KEY (P_ROW JSONB, P_KEYS TEXT[])
-RETURNS TEXT LANGUAGE SQL IMMUTABLE AS $$
- SELECT CASE WHEN coalesce(cardinality(p_keys),0)=0 THEN p_row::text
-  WHEN cardinality(p_keys)=1 THEN p_row->>p_keys[array_lower(p_keys,1)]
-  ELSE (SELECT jsonb_object_agg(k,p_row->k) FROM unnest(p_keys) k)::text END $$;
+CREATE INDEX AUDIT_ENTITY_IDX ON APP.AUDIT_LOG (ENTITY_SCHEMA, ENTITY_TABLE, CREATED_AT DESC);
 
 CREATE OR REPLACE FUNCTION APP.CAPTURE_AUDIT () RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
 DECLARE a jsonb; b jsonb;
@@ -1800,25 +1769,22 @@ BEGIN
  IF TG_OP='INSERT' THEN a:=NULL; b:=to_jsonb(NEW);
  ELSIF TG_OP='DELETE' THEN a:=to_jsonb(OLD); b:=NULL;
  ELSE a:=to_jsonb(OLD); b:=to_jsonb(NEW); END IF;
- -- Cobertura completa: tambien se conserva photo_data en la instantanea BYTEA serializada.
- INSERT INTO app.audit_log(entity_schema,entity_table,entity_key,operation,actor_user_id,old_value,new_value)
- VALUES(TG_TABLE_SCHEMA,TG_TABLE_NAME,app.audit_entity_key(coalesce(b,a),TG_ARGV),
-        left(TG_OP,1),app.actor(),a,b);
+ -- Las claves y photo_data se conservan dentro de las instantaneas completas.
+ INSERT INTO app.audit_log(entity_schema,entity_table,operation,created_by_user_id,old_value,new_value)
+ VALUES(TG_TABLE_SCHEMA,TG_TABLE_NAME,left(TG_OP,1),app.actor(),a,b);
  RETURN NULL;
 END $$;
 
 CREATE OR REPLACE FUNCTION APP.CAPTURE_TRUNCATE_AUDIT ()
 RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
 BEGIN
- -- TRUNCATE no dispara triggers por fila: capturar todas las filas ANTES de truncar.
  EXECUTE format(
-  'INSERT INTO app.audit_log(entity_schema,entity_table,entity_key,operation,actor_user_id,old_value)
-   SELECT $1,$2,app.audit_entity_key(to_jsonb(r),$3),''T'',app.actor(),to_jsonb(r) FROM %I.%I r',
+  'INSERT INTO app.audit_log(entity_schema,entity_table,operation,created_by_user_id,old_value)
+   SELECT $1,$2,''T'',app.actor(),to_jsonb(r) FROM %I.%I r',
   TG_TABLE_SCHEMA,TG_TABLE_NAME)
- USING TG_TABLE_SCHEMA,TG_TABLE_NAME,TG_ARGV;
+ USING TG_TABLE_SCHEMA,TG_TABLE_NAME;
  RETURN NULL;
 END $$;
-
 CREATE OR REPLACE FUNCTION APP.PROTECT_AUDIT_LOG ()
 RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
 BEGIN
@@ -1837,7 +1803,7 @@ FOR EACH STATEMENT EXECUTE FUNCTION APP.PROTECT_AUDIT_LOG();
 
 CREATE OR REPLACE FUNCTION APP.INSTALL_AUDIT_TRIGGERS (P_TABLE REGCLASS DEFAULT NULL)
 RETURNS VOID LANGUAGE PLPGSQL AS $$
-DECLARE r record; args text;
+DECLARE r record;
 BEGIN
  FOR r IN
   SELECT c.oid,c.relispartition,n.nspname,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -1847,26 +1813,21 @@ BEGIN
    AND (p_table IS NULL OR c.oid=p_table)
   ORDER BY c.relispartition,c.oid
  LOOP
-  SELECT string_agg(quote_literal(a.attname),',' ORDER BY k.ord) INTO args
-  FROM pg_index i CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attnum,ord)
-  JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum
-  WHERE i.indrelid=r.oid AND i.indisprimary;
-  args:=coalesce(args,'');
   IF NOT r.relispartition OR NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=r.oid AND tgname='audit_capture_row') THEN
    EXECUTE format(
     'CREATE OR REPLACE TRIGGER audit_capture_row AFTER INSERT OR UPDATE OR DELETE ON %I.%I
-     FOR EACH ROW EXECUTE FUNCTION app.capture_audit(%s)',r.nspname,r.relname,args);
+     FOR EACH ROW EXECUTE FUNCTION app.capture_audit()',r.nspname,r.relname);
   END IF;
   IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=r.oid AND tgname='audit_capture_truncate') THEN
    EXECUTE format(
     'CREATE TRIGGER audit_capture_truncate BEFORE TRUNCATE ON %I.%I
-     FOR EACH STATEMENT EXECUTE FUNCTION app.capture_truncate_audit(%s)',r.nspname,r.relname,args);
+     FOR EACH STATEMENT EXECUTE FUNCTION app.capture_truncate_audit()',r.nspname,r.relname);
   END IF;
  END LOOP;
 END $$;
 
 -- Completar el sellado de actualizacion de las tablas sin trigger TOUCH propio.
--- audit_log conserva estas columnas, pero sigue siendo inmutable.
+-- audit_log solo conserva actor y fecha de creacion; es inmutable y no recibe TOUCH.
 DO $$
 DECLARE r record;
 BEGIN
@@ -1874,6 +1835,8 @@ BEGIN
  JOIN pg_namespace n ON n.oid=c.relnamespace
  WHERE n.nspname IN ('catalog','geo','app') AND c.relkind='r'
   AND c.oid<>'app.audit_log'::regclass
+  AND (SELECT count(*)=5 FROM pg_attribute a WHERE a.attrelid=c.oid AND NOT a.attisdropped
+   AND a.attname IN ('updated_at','updated_by_user_id','deleted_at','deleted_by_user_id','created_at'))
   AND NOT EXISTS(SELECT 1 FROM pg_trigger t WHERE t.tgrelid=c.oid AND t.tgfoid='app.touch()'::regprocedure)
  LOOP
   EXECUTE format('CREATE TRIGGER metadata_touch BEFORE UPDATE ON %I.%I FOR EACH ROW EXECUTE FUNCTION app.touch()',
@@ -1998,7 +1961,7 @@ SELECT
 			S.BUSINESS_ID = B.ID
 			AND S.DELETED_AT IS NULL
 	) AS ACTIVE_BRANCHES,
-	B.OWNER_USER_ID,
+	(SELECT count(*) FROM app.business_owner o WHERE o.business_id=b.id AND o.deleted_at IS NULL) AS OWNERS,
 	(
 		SELECT
 			COUNT(*)
@@ -2037,6 +2000,9 @@ CREATE OR REPLACE FUNCTION APP.REJECT_PHYSICAL_DELETE () RETURNS TRIGGER LANGUAG
 BEGIN RAISE EXCEPTION 'Eliminacion fisica prohibida en %.%; utilice baja logica',TG_TABLE_SCHEMA,TG_TABLE_NAME;
 END $$;
 
+CREATE TRIGGER BUSINESS_OWNER_NO_DELETE
+BEFORE DELETE ON APP.BUSINESS_OWNER FOR EACH ROW EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
+
 CREATE TRIGGER BUSINESS_NO_DELETE
 BEFORE DELETE ON APP.BUSINESS FOR EACH ROW
 EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE ();
@@ -2053,9 +2019,6 @@ CREATE TRIGGER REVIEW_NO_DELETE
 BEFORE DELETE ON APP.REVIEW FOR EACH ROW
 EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE ();
 
-CREATE TRIGGER REVIEW_REPLY_NO_DELETE
-BEFORE DELETE ON APP.REVIEW_REPLY FOR EACH ROW
-EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE ();
 
 CREATE TRIGGER FAVORITE_NO_DELETE
 BEFORE DELETE ON APP.FAVORITE FOR EACH ROW
@@ -2094,7 +2057,7 @@ BEFORE DELETE ON APP.OPENING_HOUR FOR EACH ROW
 EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE ();
 
 CREATE TRIGGER HOLIDAY_NO_DELETE
-BEFORE DELETE ON APP.HOLIDAY FOR EACH ROW
+BEFORE DELETE ON CATALOG.HOLIDAY FOR EACH ROW
 EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE ();
 
 CREATE TRIGGER OVERRIDE_NO_DELETE
@@ -2136,7 +2099,7 @@ BEFORE DELETE ON APP.SERVICE_PRODUCT_PRICE FOR EACH ROW
 EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE ();
 
 CREATE TRIGGER SYNONYM_NO_DELETE
-BEFORE DELETE ON APP.SEARCH_SYNONYM FOR EACH ROW
+BEFORE DELETE ON CATALOG.SEARCH_SYNONYM FOR EACH ROW
 EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE ();
 
 CREATE TRIGGER PARAM_DEF_NO_DELETE
@@ -2153,6 +2116,10 @@ CREATE TRIGGER BUSINESS_PHOTO_NO_DELETE
 BEFORE DELETE ON APP.BUSINESS_PHOTO FOR EACH ROW EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
 
 -- Los catalogos tampoco pueden vaciarse mediante TRUNCATE.
+CREATE TRIGGER HOLIDAY_NO_TRUNCATE
+BEFORE TRUNCATE ON CATALOG.HOLIDAY FOR EACH STATEMENT EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
+CREATE TRIGGER SYNONYM_NO_TRUNCATE
+BEFORE TRUNCATE ON CATALOG.SEARCH_SYNONYM FOR EACH STATEMENT EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
 CREATE TRIGGER CATEGORY_NO_TRUNCATE
 BEFORE TRUNCATE ON CATALOG.CATEGORY FOR EACH STATEMENT EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
 CREATE TRIGGER SERVICE_PRODUCT_NO_TRUNCATE

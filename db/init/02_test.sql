@@ -29,11 +29,11 @@ SELECT pg_temp.assert_true(NOT EXISTS(
   ('created_by_user_id','uuid'),('updated_by_user_id','uuid'),('deleted_by_user_id','uuid'),
   ('created_at','timestamptz'),('updated_at','timestamptz'),('deleted_at','timestamptz')
  ) required(name,type_name)
- WHERE n.nspname IN ('catalog','geo','app') AND t.relkind IN ('r','p')
+ WHERE n.nspname IN ('catalog','geo','app') AND t.relkind IN ('r','p') AND t.oid NOT IN ('app.audit_log'::regclass,'app.event'::regclass,'app.event_hist'::regclass,'app.daily_metric'::regclass,'app.monthly_metric'::regclass)
  AND NOT EXISTS(SELECT 1 FROM pg_attribute a
   WHERE a.attrelid=t.oid AND a.attname=required.name AND NOT a.attisdropped
    AND a.atttypid=to_regtype(required.type_name))),
- 'seis columnas de auditoria en todas las tablas, incluido event_hist y audit_log');
+ 'seis columnas de auditoria en tablas operativas; log y analitica tienen su contrato propio');
 SELECT pg_temp.assert_true(NOT EXISTS(
  SELECT 1 FROM pg_constraint fk JOIN pg_class t ON t.oid=fk.conrelid
  JOIN pg_namespace n ON n.oid=t.relnamespace
@@ -46,7 +46,7 @@ SELECT pg_temp.assert_true(
  AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='app.review'::regclass AND attname='moderated_by_user_id' AND atttypid='uuid'::regtype),
  'columnas de moderacion de review');
 SELECT pg_temp.assert_true(
- to_regclass('app.owner_identity') IS NULL AND to_regclass('app.business_owner') IS NULL
+ to_regclass('app.owner_identity') IS NULL
  AND to_regclass('catalog.service') IS NULL AND to_regclass('app.branch_service') IS NULL
  AND to_regclass('app.service_price') IS NULL,'tablas reemplazadas ausentes');
 SELECT pg_temp.assert_true(NOT EXISTS(
@@ -55,6 +55,23 @@ SELECT pg_temp.assert_true(NOT EXISTS(
  SELECT 1 FROM pg_attribute WHERE attrelid='app.branch'::regclass AND NOT attisdropped
  AND attname IN ('price_level','min_price_bob','max_price_bob','emergency','home_service','accessibility')),
  'negocio y sucursal sin campos duplicados');
+
+SELECT pg_temp.assert_true(to_regclass('app.review_reply') IS NULL
+ AND to_regclass('app.holiday') IS NULL AND to_regclass('app.search_synonym') IS NULL
+ AND to_regclass('catalog.holiday') IS NOT NULL AND to_regclass('catalog.search_synonym') IS NOT NULL,
+ 'respuesta integrada y catalogos reubicados');
+SELECT pg_temp.assert_true((SELECT array_agg(column_name::text ORDER BY ordinal_position)=
+ ARRAY['id','entity_schema','entity_table','operation','transaction_id','old_value','new_value','created_by_user_id','created_at']
+ FROM information_schema.columns WHERE table_schema='app' AND table_name='audit_log'), 'contrato actual de audit_log');
+SAVEPOINT actor_system_test;
+SELECT set_config('cofre.actor_id','',true);
+INSERT INTO catalog.search_synonym(term,synonym) VALUES('sistema prueba','sin actor');
+SELECT pg_temp.assert_true(EXISTS(SELECT 1 FROM app.audit_log WHERE entity_schema='catalog'
+ AND entity_table='search_synonym' AND new_value->>'term'='sistema prueba'
+ AND created_by_user_id='00000000-0000-0000-0000-000000000000'), 'actor del sistema sin usuario');
+ROLLBACK TO SAVEPOINT actor_system_test;
+RELEASE SAVEPOINT actor_system_test;
+SELECT set_config('cofre.actor_id','00000000-0000-0000-0000-000000000001',true);
 
 -- Catalogos de estados precargados y relaciones que sustituyen las listas CHECK.
 DO $$
@@ -131,7 +148,7 @@ SELECT pg_temp.assert_true(
  'auditoria de INSERT, UPDATE, UPSERT, MERGE, DELETE y TRUNCATE');
 SELECT pg_temp.assert_true(
  EXISTS(SELECT 1 FROM app.audit_log WHERE entity_table='__audit_test' AND operation='T'
- AND old_value->>'label'='truncate' AND entity_key::jsonb='{"a":3,"b":4}'::jsonb),
+ AND old_value->>'label'='truncate' AND old_value @> '{"a":3,"b":4}'::jsonb),
  'instantanea previa de TRUNCATE y clave compuesta');
 SELECT pg_temp.assert_true(
  NOT EXISTS(SELECT 1 FROM app.audit_log WHERE entity_table='__audit_test' AND entity_schema='public'),
@@ -144,16 +161,16 @@ SELECT pg_temp.assert_true(
  SELECT 1 FROM pg_trigger t WHERE t.tgrelid=c.oid AND t.tgname='audit_capture_row' AND t.tgenabled='O')),
  'cobertura de todas las tablas del dominio');
 SELECT pg_temp.expect_error(
- 'UPDATE app.audit_log SET entity_key=''alterado'' WHERE id=(SELECT min(id) FROM app.audit_log)',
+ 'UPDATE app.audit_log SET entity_table=''alterado'' WHERE id=(SELECT min(id) FROM app.audit_log)',
  'inmutable');
 SELECT pg_temp.expect_error('TRUNCATE app.audit_log','inmutable');
 SELECT pg_temp.expect_error(
- 'INSERT INTO app.audit_log(entity_schema,entity_table,entity_key,operation) VALUES(''app'',''falso'',''1'',''I'')',
+ 'INSERT INTO app.audit_log(entity_schema,entity_table,operation) VALUES(''app'',''falso'',''I'')',
  'inmutable');
 
 DO $$
 DECLARE
- bid uuid; sid uuid; sid2 uuid; cat uuid; pic1 uuid; pic2 uuid; adid uuid; test_review_id uuid; item_id uuid; unassigned_item_id uuid; no_price_id uuid; test_type text;
+ bid uuid; second_bid uuid; sid uuid; sid2 uuid; cat uuid; pic1 uuid; pic2 uuid; adid uuid; test_review_id uuid; item_id uuid; unassigned_item_id uuid; no_price_id uuid; test_type text;
  uid uuid:='00000000-0000-0000-0000-000000000001';
  p geography:=ST_SetSRID(ST_MakePoint(-68.1193,-16.4897),4326)::geography;
  imagebytes bytea:=decode('ffd8ff010203040506070809','hex');
@@ -164,7 +181,7 @@ BEGIN
  SELECT id INTO STRICT sid FROM app.branch WHERE business_id=bid;
  SET CONSTRAINTS ALL IMMEDIATE;
  SET CONSTRAINTS ALL DEFERRED;
- PERFORM pg_temp.assert_true((SELECT owner_user_id=uid AND created_by_user_id=uid FROM app.business WHERE id=bid),
+ PERFORM pg_temp.assert_true((SELECT app.is_business_owner(uid,bid) AND created_by_user_id=uid FROM app.business WHERE id=bid),
   'propietario directo y actor creador');
  PERFORM pg_temp.assert_true(app.is_business_owner(uid,bid) AND
   NOT app.is_business_owner('00000000-0000-0000-0000-000000000002',bid),'control de propietario directo');
@@ -188,7 +205,7 @@ BEGIN
  INSERT INTO app.branch_category(branch_id,category_id) VALUES(sid2,cat);
  SET CONSTRAINTS ALL IMMEDIATE;
  SET CONSTRAINTS ALL DEFERRED;
- PERFORM pg_temp.assert_true((SELECT owner_user_id=uid AND created_by_user_id=uid FROM app.business WHERE id=bid),
+ PERFORM pg_temp.assert_true((SELECT app.is_business_owner(uid,bid) AND created_by_user_id=uid FROM app.business WHERE id=bid),
   'propietario directo y actor creador');
  PERFORM pg_temp.assert_true(app.is_business_owner(uid,bid) AND
   NOT app.is_business_owner('00000000-0000-0000-0000-000000000002',bid),'control de propietario directo');
@@ -268,7 +285,7 @@ BEGIN
  UPDATE app.branch_hour_override SET active=false WHERE branch_id=sid;
  PERFORM pg_temp.assert_true(app.is_open_at(sid,'2026-11-10 01:00:00-04'),
   'desactivar excepcion restaura horario regular');
- INSERT INTO app.holiday(name,holiday_date) VALUES('Feriado prueba','2026-11-10');
+ INSERT INTO catalog.holiday(name,holiday_date) VALUES('Feriado prueba','2026-11-10');
  PERFORM pg_temp.assert_true(NOT app.is_open_at(sid,'2026-11-10 01:00:00-04'),
   'feriado cierra todo el dia');
  UPDATE app.branch_hour_override SET active=true,is_closed=false,is_24_hours=true,
@@ -276,7 +293,7 @@ BEGIN
  PERFORM pg_temp.assert_true(app.is_open_at(sid,'2026-11-10 01:00:00-04'),
   'excepcion 24 horas prevalece sobre feriado');
  UPDATE app.branch_hour_override SET active=false WHERE branch_id=sid;
- UPDATE app.holiday SET active=false WHERE name='Feriado prueba';
+ UPDATE catalog.holiday SET active=false WHERE name='Feriado prueba';
  INSERT INTO app.opening_hour(branch_id,weekday,opens_at,closes_at,is_24_hours)
  VALUES(sid,3,'00:00','00:00',true);
  PERFORM pg_temp.assert_true(app.is_open_at(sid,'2026-11-11 23:59:59-04'),'dia regular 24 horas');
@@ -296,7 +313,7 @@ BEGIN
  PERFORM app.admin_publish_business(bid,uid);
  SET CONSTRAINTS ALL IMMEDIATE;
  SET CONSTRAINTS ALL DEFERRED;
- PERFORM pg_temp.assert_true((SELECT owner_user_id=uid AND status='published'
+ PERFORM pg_temp.assert_true((SELECT owners=1 AND status='published'
   FROM app.admin_business_summary WHERE id=bid),'resumen con propietario y estado unico');
  INSERT INTO app.review(branch_id,user_id,rating,body)
  VALUES(sid,uid,5,'Para moderar') RETURNING id INTO test_review_id;
@@ -304,10 +321,29 @@ BEGIN
  PERFORM pg_temp.assert_true((SELECT created_by_user_id=uid AND updated_by_user_id=uid
   AND moderated_by_user_id=uid AND moderated_at IS NOT NULL FROM app.review WHERE id=test_review_id),
   'actores y fecha de moderacion sin FK');
- PERFORM app.reply_to_review(test_review_id,uid,'Gracias');
+ PERFORM pg_temp.assert_true(app.reply_to_review(test_review_id,uid,'Gracias')=test_review_id,
+  'respuesta devuelve ID de resena');
+ PERFORM app.reply_to_review(test_review_id,uid,'Gracias de nuevo');
+ PERFORM pg_temp.assert_true((SELECT reply_text='Gracias de nuevo' AND reply_by_user_id=uid
+  AND replied_at IS NOT NULL FROM app.review WHERE id=test_review_id),'respuesta integrada y actualizable');
+ PERFORM pg_temp.expect_error(format('SELECT app.reply_to_review(%L,%L,'' '')',test_review_id,uid),'Respuesta requerida');
  PERFORM pg_temp.expect_error(format(
   'SELECT app.reply_to_review(%L,%L,''Sin permiso'')',test_review_id,'00000000-0000-0000-0000-000000000002'),
   'No es propietario');
+ -- Un negocio tiene varios propietarios y un propietario tiene varios negocios.
+ INSERT INTO app.business_owner(business_id,user_id) VALUES(bid,'00000000-0000-0000-0000-000000000002');
+ PERFORM pg_temp.assert_true(app.is_business_owner('00000000-0000-0000-0000-000000000002',bid),
+  'segundo propietario autorizado');
+ PERFORM app.reply_to_review(test_review_id,'00000000-0000-0000-0000-000000000002','Respuesta compartida');
+ INSERT INTO app.business(trade_name) VALUES('Segundo negocio') RETURNING id INTO second_bid;
+ INSERT INTO app.business_owner(business_id,user_id) VALUES(second_bid,uid);
+ PERFORM pg_temp.assert_true((SELECT count(*)=2 FROM app.business_owner WHERE user_id=uid AND deleted_at IS NULL),
+  'usuario con varios negocios');
+ PERFORM pg_temp.assert_true((SELECT owners=2 FROM app.admin_business_summary WHERE id=bid),'resumen con varios propietarios');
+ PERFORM pg_temp.expect_error(format('INSERT INTO app.business_owner(business_id,user_id) VALUES(%L,%L)',bid,uid),'unique constraint');
+ UPDATE app.business_owner SET deleted_at=now() WHERE business_id=bid AND user_id='00000000-0000-0000-0000-000000000002';
+ PERFORM pg_temp.assert_true(NOT app.is_business_owner('00000000-0000-0000-0000-000000000002',bid),'revocacion de propietario');
+
  PERFORM app.add_business_photo(bid,uid,imagebytes,'image/jpeg');
  PERFORM pg_temp.assert_true(EXISTS(SELECT 1 FROM app.business_photo WHERE business_id=bid AND created_by_user_id=uid),
   'fotos de negocio con propietario directo');
@@ -371,7 +407,7 @@ BEGIN
   SELECT 1 FROM app.audit_log WHERE entity_table='branch_photo' AND operation='I'
   AND new_value ? 'photo_data'),'auditoria completa de fotos');
  PERFORM pg_temp.assert_true(NOT EXISTS(
-  SELECT 1 FROM app.audit_log WHERE transaction_id=pg_current_xact_id() AND actor_user_id IS DISTINCT FROM uid),
+  SELECT 1 FROM app.audit_log WHERE transaction_id=pg_current_xact_id() AND created_by_user_id IS DISTINCT FROM uid),
   'actor de la transaccion');
 
  PERFORM app.soft_delete_branch(sid,uid);
@@ -382,6 +418,7 @@ BEGIN
   AND NOT EXISTS(SELECT 1 FROM app.branch WHERE business_id=bid AND deleted_at IS NULL),
   'negocio vigente sin sucursales');
  PERFORM app.soft_delete_business(bid,uid);
+ PERFORM pg_temp.assert_true(NOT app.is_business_owner(uid,bid),'negocio eliminado revoca acceso de propietarios');
  PERFORM pg_temp.assert_true(NOT EXISTS(
   SELECT 1 FROM app.published_branch WHERE branch_id=sid),'baja logica');
  RAISE NOTICE 'Pruebas de servicios/productos, precios, estados, horarios, busqueda, configuracion, publicacion, fotos y auditoria: OK';
