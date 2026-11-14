@@ -22,6 +22,65 @@ BEGIN
  RAISE EXCEPTION 'No se rechazo la operacion: %',p_sql;
 END $$;
 
+-- Catalogos de estados precargados y relaciones que sustituyen las listas CHECK.
+DO $$
+DECLARE r record; actual text[];
+BEGIN
+ FOR r IN SELECT * FROM (VALUES
+  ('business_status',ARRAY['active','temporarily_closed','permanently_closed']),
+  ('publication_status',ARRAY['draft','pending','published','rejected','archived']),
+  ('subscription_status',ARRAY['pending','active','expired','cancelled']),
+  ('subscription_payment_status',ARRAY['pending','paid','failed','refunded','cancelled']),
+  ('review_moderation_status',ARRAY['visible','hidden','flagged']),
+  ('ad_payment_status',ARRAY['pending','paid','refunded','cancelled']),
+  ('ad_status',ARRAY['draft','active','paused','completed','cancelled']),
+  ('import_status',ARRAY['uploaded','validating','needs_review','approved','applied','failed'])
+ ) v(table_name,codes) LOOP
+  EXECUTE format('SELECT array_agg(code::text ORDER BY code) FROM catalog.%I',r.table_name) INTO actual;
+  PERFORM pg_temp.assert_true(actual=ARRAY(SELECT unnest(r.codes) ORDER BY 1),
+   'valores precargados de catalog.'||r.table_name);
+  PERFORM pg_temp.expect_error(format('DELETE FROM catalog.%I WHERE code=%L',r.table_name,r.codes[1]),
+   'Eliminacion fisica');
+  PERFORM pg_temp.expect_error(format('TRUNCATE catalog.%I CASCADE',r.table_name),
+   'Eliminacion fisica');
+  PERFORM pg_temp.assert_true(EXISTS(SELECT 1 FROM pg_trigger
+   WHERE tgrelid=to_regclass('catalog.'||r.table_name) AND tgname='audit_capture_row' AND tgenabled='O'),
+   'auditoria de catalog.'||r.table_name);
+ END LOOP;
+ FOR r IN SELECT * FROM (VALUES
+  ('business','status','business_status'),
+  ('branch','status','business_status'),
+  ('business','publication_status','publication_status'),
+  ('business_subscription','status','subscription_status'),
+  ('subscription_payment','status','subscription_payment_status'),
+  ('review','moderation_status','review_moderation_status'),
+  ('ad_placement','payment_status','ad_payment_status'),
+  ('ad_placement','status','ad_status'),
+  ('import_batch','status','import_status')
+ ) v(table_name,column_name,catalog_name) LOOP
+  PERFORM pg_temp.assert_true(EXISTS(
+   SELECT 1 FROM pg_constraint fk
+   JOIN pg_attribute source ON source.attrelid=fk.conrelid AND source.attnum=fk.conkey[1]
+   JOIN pg_attribute target ON target.attrelid=fk.confrelid AND target.attnum=fk.confkey[1]
+   WHERE fk.contype='f' AND fk.conrelid=to_regclass('app.'||r.table_name)
+    AND fk.confrelid=to_regclass('catalog.'||r.catalog_name)
+    AND cardinality(fk.conkey)=1 AND cardinality(fk.confkey)=1
+    AND source.attname=r.column_name AND target.attname='code'),
+   'FK de app.'||r.table_name||'.'||r.column_name);
+ END LOOP;
+END $$;
+
+SELECT pg_temp.expect_error(
+ 'INSERT INTO app.business(trade_name,status) VALUES(''Estado invalido'',''__invalid__'')',
+ 'foreign key');
+SELECT pg_temp.expect_error(
+ 'INSERT INTO app.business(trade_name,publication_status) VALUES(''Publicacion invalida'',''__invalid__'')',
+ 'foreign key');
+SELECT pg_temp.expect_error(
+ 'SELECT app.moderate_review(NULL,''__invalid__'',NULL,NULL)',
+ 'Estado invalido');
+
+
 -- El event trigger debe cubrir automaticamente tablas nuevas, sin tocar public.
 CREATE TABLE app.__audit_test (a integer,b integer,label text,PRIMARY KEY(a,b));
 CREATE TABLE public.__audit_test (id integer PRIMARY KEY);
@@ -63,7 +122,7 @@ SELECT pg_temp.expect_error(
 
 DO $$
 DECLARE
- bid uuid; sid uuid; sid2 uuid; cat uuid; pic1 uuid; pic2 uuid; adid uuid;
+ bid uuid; sid uuid; sid2 uuid; cat uuid; pic1 uuid; pic2 uuid; adid uuid; item_id uuid; unassigned_item_id uuid; no_price_id uuid; test_type text;
  uid uuid:='00000000-0000-0000-0000-000000000001';
  p geography:=ST_SetSRID(ST_MakePoint(-68.1193,-16.4897),4326)::geography;
  imagebytes bytea:=decode('ffd8ff010203040506070809','hex');
@@ -93,12 +152,60 @@ BEGIN
   (SELECT count(*)=2 FROM app.branch WHERE business_id=bid AND is_primary),'varias sucursales principales');
  PERFORM app.soft_delete_branch(sid2,uid);
 
+ -- Servicios y productos con precio fijo, rango y precio opcional.
+ FOR test_type IN SELECT unnest(ARRAY['S','P']) LOOP
+  INSERT INTO catalog.service(code,name,item_type)
+  VALUES('test_'||test_type,'Item de prueba '||test_type,test_type) RETURNING id INTO item_id;
+  INSERT INTO app.branch_service(branch_id,service_id) VALUES(sid,item_id);
+  INSERT INTO app.service_price(branch_id,service_id,amount_min_bob,amount_max_bob)
+  VALUES(sid,item_id,25,25);
+  PERFORM pg_temp.assert_true(EXISTS(SELECT 1 FROM app.service_price
+   WHERE branch_id=sid AND service_id=item_id AND active AND amount_min_bob=amount_max_bob),
+   'precio fijo para tipo '||test_type);
+  UPDATE app.service_price SET active=false WHERE branch_id=sid AND service_id=item_id;
+  INSERT INTO app.service_price(branch_id,service_id,amount_min_bob,amount_max_bob)
+  VALUES(sid,item_id,20,30);
+  PERFORM pg_temp.assert_true(EXISTS(SELECT 1 FROM app.service_price
+   WHERE branch_id=sid AND service_id=item_id AND active AND amount_min_bob<amount_max_bob),
+   'rango de precio para tipo '||test_type);
+  PERFORM pg_temp.expect_error(format(
+   'UPDATE app.service_price SET amount_max_bob=10 WHERE branch_id=%L AND service_id=%L AND active',sid,item_id),
+   'check constraint');
+  PERFORM pg_temp.expect_error(format(
+   'INSERT INTO app.service_price(branch_id,service_id,amount_min_bob,amount_max_bob) VALUES(%L,%L,1,2)',sid,item_id),
+   'unique constraint');
+  INSERT INTO catalog.service(code,name,item_type)
+  VALUES('no_price_'||test_type,'Sin precio '||test_type,test_type) RETURNING id INTO no_price_id;
+  INSERT INTO app.branch_service(branch_id,service_id) VALUES(sid,no_price_id);
+  PERFORM pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM app.service_price
+   WHERE branch_id=sid AND service_id=no_price_id AND active),'precio opcional para tipo '||test_type);
+ END LOOP;
+ INSERT INTO catalog.service(code,name) VALUES('default_service','Servicio predeterminado') RETURNING id INTO unassigned_item_id;
+ PERFORM pg_temp.assert_true((SELECT item_type='S' FROM catalog.service WHERE id=unassigned_item_id),'tipo S predeterminado');
+ PERFORM pg_temp.expect_error(format(
+  'INSERT INTO app.service_price(branch_id,service_id,amount_min_bob,amount_max_bob) VALUES(%L,%L,1,2)',sid,unassigned_item_id),
+  'foreign key');
+ PERFORM pg_temp.expect_error(
+  'INSERT INTO catalog.service(code,name,item_type) VALUES(''invalid_type'',''Tipo invalido'',''X'')','check constraint');
+ PERFORM pg_temp.expect_error(
+  'INSERT INTO catalog.service(code,name,item_type) VALUES(''null_type'',''Tipo nulo'',NULL)','not-null constraint');
+ PERFORM pg_temp.assert_true(EXISTS(SELECT 1 FROM app.audit_log WHERE entity_schema='catalog'
+  AND entity_table='service' AND operation='I' AND new_value->>'item_type'='P'),'auditoria de productos');
+
  pic1:=app.add_photo(sid,uid,imagebytes,'image/jpeg',true);
  pic2:=app.add_photo(sid,uid,imagebytes,'image/jpeg',true);
  PERFORM app.set_primary_photo(sid,pic1,uid);
  PERFORM pg_temp.assert_true(
   (SELECT count(*)=2 FROM app.branch_photo WHERE branch_id=sid AND is_primary),
   'varias fotos principales mediante funciones');
+
+ -- Un permiso de administrador nulo no autoriza a un usuario sin propiedad.
+ PERFORM pg_temp.expect_error(format(
+  'SELECT app.add_photo(%L,%L,%L::bytea,''image/jpeg'',p_is_admin=>NULL)',
+  sid,'00000000-0000-0000-0000-000000000002',imagebytes),'Solo propietario');
+ PERFORM pg_temp.expect_error(format(
+  'SELECT app.set_primary_photo(%L,%L,%L,p_is_admin=>NULL)',
+  sid,pic1,'00000000-0000-0000-0000-000000000002'),'Permiso denegado');
 
  -- Lunes 22:00 a martes 02:00, America/La_Paz.
  INSERT INTO app.opening_hour(branch_id,weekday,opens_at,closes_at)
@@ -208,7 +315,7 @@ BEGIN
  PERFORM app.soft_delete_business(bid,uid);
  PERFORM pg_temp.assert_true(NOT EXISTS(
   SELECT 1 FROM app.published_branch WHERE branch_id=sid),'baja logica');
- RAISE NOTICE 'Pruebas de horarios, busqueda, configuracion, publicacion, fotos y auditoria: OK';
+ RAISE NOTICE 'Pruebas de servicios/productos, precios, estados, horarios, busqueda, configuracion, publicacion, fotos y auditoria: OK';
 END $$;
 
 ROLLBACK;

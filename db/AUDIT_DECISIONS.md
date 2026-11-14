@@ -11,6 +11,7 @@ Alcance confirmado el 12 de noviembre de 2026.
 - Fotos y su historial permanecen en PostgreSQL, sin migracion a almacenamiento externo.
 - Se permiten varias sucursales por negocio y varias fotos por sucursal o negocio.
 - Se permite conservar un negocio sin sucursales y dar de baja la ultima sucursal.
+- Cada sucursal puede tener services o products. Cada uno con opcion a rango de precio o precio fijado. La tabla catalog referente debe tener una columna S para service o P para product.
 - Se incorpora geocodificacion posterior al MVP, los mapas son de MapBox.
 - Frontend y backend suministran las ubicaciones de los usuarios. Este SQL no obtiene la posicion del dispositivo
   ni convierte una direccion en coordenadas.
