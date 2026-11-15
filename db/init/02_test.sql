@@ -29,7 +29,7 @@ SELECT pg_temp.assert_true(NOT EXISTS(
   ('created_by_user_id','uuid'),('updated_by_user_id','uuid'),('deleted_by_user_id','uuid'),
   ('created_at','timestamptz'),('updated_at','timestamptz'),('deleted_at','timestamptz')
  ) required(name,type_name)
- WHERE n.nspname IN ('catalog','geo','app') AND t.relkind IN ('r','p') AND t.oid NOT IN ('app.audit_log'::regclass,'app.event'::regclass,'app.event_hist'::regclass,'app.daily_metric'::regclass,'app.monthly_metric'::regclass)
+ WHERE n.nspname IN ('catalog','geo','app') AND t.relkind IN ('r','p') AND t.oid NOT IN ('app.audit_log'::regclass,'app.event'::regclass,'app.event_hist'::regclass,'app.daily_metric'::regclass,'app.monthly_metric'::regclass,'app.favorite'::regclass,'app.photo_blob'::regclass)
  AND NOT EXISTS(SELECT 1 FROM pg_attribute a
   WHERE a.attrelid=t.oid AND a.attname=required.name AND NOT a.attisdropped
    AND a.atttypid=to_regtype(required.type_name))),
@@ -56,6 +56,10 @@ SELECT pg_temp.assert_true(NOT EXISTS(
  AND attname IN ('price_level','min_price_bob','max_price_bob','emergency','home_service','accessibility')),
  'negocio y sucursal sin campos duplicados');
 
+SELECT pg_temp.assert_true(to_regclass('catalog.ad_status') IS NULL
+ AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='ad_placement' AND column_name='status')
+ AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='ad_placement' AND column_name='active' AND data_type='boolean' AND is_nullable='NO'),
+ 'anuncios con active booleano sin catalogo de estados');
 SELECT pg_temp.assert_true(to_regclass('app.review_reply') IS NULL
  AND to_regclass('app.holiday') IS NULL AND to_regclass('app.search_synonym') IS NULL
  AND to_regclass('catalog.holiday') IS NOT NULL AND to_regclass('catalog.search_synonym') IS NOT NULL,
@@ -82,9 +86,7 @@ BEGIN
   ('business_status',ARRAY['draft','pending','published','rejected','archived']),
   ('subscription_status',ARRAY['pending','active','expired','cancelled']),
   ('subscription_payment_status',ARRAY['pending','paid','failed','refunded','cancelled']),
-  ('review_moderation_status',ARRAY['visible','hidden','flagged']),
-  ('ad_payment_status',ARRAY['pending','paid','refunded','cancelled']),
-  ('ad_status',ARRAY['draft','active','paused','completed','cancelled'])
+  ('review_moderation_status',ARRAY['visible','hidden','flagged','deleted'])
  ) v(table_name,codes) LOOP
   EXECUTE format('SELECT array_agg(code::text ORDER BY code) FROM catalog.%I',r.table_name) INTO actual;
   PERFORM pg_temp.assert_true(actual=ARRAY(SELECT unnest(r.codes) ORDER BY 1),
@@ -102,9 +104,7 @@ BEGIN
   ('branch','status','branch_status'),
   ('business_subscription','status','subscription_status'),
   ('subscription_payment','status','subscription_payment_status'),
-  ('review','moderation_status','review_moderation_status'),
-  ('ad_placement','payment_status','ad_payment_status'),
-  ('ad_placement','status','ad_status')
+  ('review','moderation_status','review_moderation_status')
  ) v(table_name,column_name,catalog_name) LOOP
   PERFORM pg_temp.assert_true(EXISTS(
    SELECT 1 FROM pg_constraint fk
@@ -157,9 +157,10 @@ SELECT pg_temp.assert_true(
  NOT EXISTS (
  SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
  WHERE n.nspname IN ('app','geo','catalog') AND c.relkind IN ('r','p')
- AND c.oid<>'app.audit_log'::regclass AND NOT EXISTS(
+ AND c.oid NOT IN ('app.audit_log'::regclass,'app.event'::regclass,'app.event_hist'::regclass,
+ 'app.daily_metric'::regclass,'app.monthly_metric'::regclass,'app.photo_blob'::regclass) AND NOT EXISTS(
  SELECT 1 FROM pg_trigger t WHERE t.tgrelid=c.oid AND t.tgname='audit_capture_row' AND t.tgenabled='O')),
- 'cobertura de todas las tablas del dominio');
+ 'cobertura de tablas del dominio salvo analitica y photo_blob');
 SELECT pg_temp.expect_error(
  'UPDATE app.audit_log SET entity_table=''alterado'' WHERE id=(SELECT min(id) FROM app.audit_log)',
  'inmutable');
@@ -337,19 +338,33 @@ BEGIN
  PERFORM app.reply_to_review(test_review_id,'00000000-0000-0000-0000-000000000002','Respuesta compartida');
  INSERT INTO app.business(trade_name) VALUES('Segundo negocio') RETURNING id INTO second_bid;
  INSERT INTO app.business_owner(business_id,user_id) VALUES(second_bid,uid);
- PERFORM pg_temp.assert_true((SELECT count(*)=2 FROM app.business_owner WHERE user_id=uid AND deleted_at IS NULL),
+ PERFORM pg_temp.assert_true((SELECT count(*)=2 FROM app.business_owner WHERE user_id=uid AND active),
   'usuario con varios negocios');
  PERFORM pg_temp.assert_true((SELECT owners=2 FROM app.admin_business_summary WHERE id=bid),'resumen con varios propietarios');
  PERFORM pg_temp.expect_error(format('INSERT INTO app.business_owner(business_id,user_id) VALUES(%L,%L)',bid,uid),'unique constraint');
- UPDATE app.business_owner SET deleted_at=now() WHERE business_id=bid AND user_id='00000000-0000-0000-0000-000000000002';
+ UPDATE app.business_owner SET active=false,deleted_at=now() WHERE business_id=bid AND user_id='00000000-0000-0000-0000-000000000002';
  PERFORM pg_temp.assert_true(NOT app.is_business_owner('00000000-0000-0000-0000-000000000002',bid),'revocacion de propietario');
 
  PERFORM app.add_business_photo(bid,uid,imagebytes,'image/jpeg');
  PERFORM pg_temp.assert_true(EXISTS(SELECT 1 FROM app.business_photo WHERE business_id=bid AND created_by_user_id=uid),
   'fotos de negocio con propietario directo');
 
+ UPDATE app.branch SET deleted_at=now() WHERE id=sid;
+ PERFORM pg_temp.assert_true(EXISTS(SELECT 1 FROM app.published_branch WHERE branch_id=sid),
+  'fecha de baja no decide la vigencia de una sucursal activa');
+ UPDATE app.branch SET deleted_at=NULL WHERE id=sid;
+ UPDATE app.business_owner SET active=false WHERE business_id=bid AND user_id=uid;
+ PERFORM pg_temp.assert_true(NOT app.is_business_owner(uid,bid),'active falso revoca propiedad sin fecha de baja');
+ UPDATE app.business_owner SET active=true WHERE business_id=bid AND user_id=uid;
  PERFORM pg_temp.assert_true(app.toggle_favorite(uid,sid),'favorito on');
  PERFORM pg_temp.assert_true(NOT app.toggle_favorite(uid,sid),'favorito off');
+ PERFORM pg_temp.assert_true((SELECT favorites=0 FROM app.dashboard_branch_metrics WHERE branch_id=sid),
+  'favoritos inactivos excluidos de metricas');
+ UPDATE app.branch_photo SET active=false WHERE id=pic1;
+ PERFORM pg_temp.expect_error(format('SELECT app.set_primary_photo(%L,%L,%L)',sid,pic1,uid),'Foto inexistente');
+ UPDATE app.branch_photo SET active=true WHERE id=pic1;
+ UPDATE app.review SET moderation_status='deleted' WHERE id=test_review_id;
+ PERFORM pg_temp.expect_error(format('SELECT app.reply_to_review(%L,%L,''Respuesta'')',test_review_id,uid),'no rows');
 
  PERFORM pg_temp.assert_true(
   EXISTS(SELECT 1 FROM app.find_branches(NULL,p,5000) f WHERE f.branch_id=sid
@@ -377,14 +392,26 @@ BEGIN
   SELECT 1 FROM app.find_branches(p_center=>ST_SetSRID(ST_MakePoint(-68.12,-16.49),4326)::geography)
   f WHERE f.branch_id=sid),'radio predeterminado configurable');
 
- INSERT INTO app.ad_placement(branch_id,slot,starts_at,ends_at,amount_bob,status)
- VALUES(sid,'map_highlight',now()-interval '1 hour',now()+interval '1 hour',10,'active')
+ INSERT INTO app.ad_placement(branch_id,starts_at,ends_at,active)
+ VALUES(sid,now()-interval '1 hour',now()+interval '1 hour',true)
  RETURNING id INTO adid;
- PERFORM pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM app.active_ads() WHERE ad_id=adid),
-  'pago requerido por defecto');
- INSERT INTO catalog.parameter_value(code,value) VALUES('ad.require_paid','false');
  PERFORM pg_temp.assert_true(EXISTS(SELECT 1 FROM app.active_ads() WHERE ad_id=adid),
-  'parametro permite publicidad no pagada');
+  'anuncio activo y vigente sin condicion de pago');
+ UPDATE app.ad_placement SET active=false WHERE id=adid;
+ PERFORM pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM app.active_ads() WHERE ad_id=adid),
+  'active falso excluye anuncio sin fecha de baja');
+ UPDATE app.ad_placement SET active=true,deleted_at=now() WHERE id=adid;
+ PERFORM pg_temp.assert_true(EXISTS(SELECT 1 FROM app.active_ads() WHERE ad_id=adid),
+  'fecha de baja no decide vigencia de anuncio activo');
+ UPDATE app.ad_placement SET deleted_at=NULL WHERE id=adid;
+ UPDATE app.ad_placement SET ends_at=now()-interval '1 minute' WHERE id=adid;
+ PERFORM pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM app.active_ads() WHERE ad_id=adid),
+  'anuncio vencido excluido aunque active sea verdadero');
+ PERFORM pg_temp.assert_true(app.expire_ads()=1,'vencimiento desactiva anuncio');
+ PERFORM pg_temp.assert_true((SELECT NOT active FROM app.ad_placement WHERE id=adid),
+  'anuncio vencido queda con active falso');
+ PERFORM pg_temp.assert_true(app.expire_ads()=0,'vencimiento no repite desactivaciones');
+ UPDATE app.ad_placement SET active=true,ends_at=now()+interval '1 hour' WHERE id=adid;
  UPDATE app.branch SET status='permanently_closed' WHERE id=sid;
  PERFORM pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM app.active_ads() WHERE ad_id=adid),
   'sin publicidad de sucursal cerrada permanentemente');
@@ -400,12 +427,12 @@ BEGIN
  PERFORM pg_temp.assert_true(EXISTS(SELECT 1 FROM app.event_hist WHERE branch_id=sid),'historico');
  PERFORM app.consolidate_daily((now() AT TIME ZONE 'America/La_Paz')::date-8);
  PERFORM app.consolidate_daily((now() AT TIME ZONE 'America/La_Paz')::date-8);
- PERFORM pg_temp.assert_true(EXISTS(
-  SELECT 1 FROM app.audit_log WHERE entity_table='daily_metric' AND operation='D'),
-  'auditoria de DELETE al recomputar metricas');
+ PERFORM pg_temp.assert_true(NOT EXISTS(
+  SELECT 1 FROM app.audit_log WHERE entity_schema='app' AND entity_table='daily_metric'),
+  'auditoria de metricas excluida');
  PERFORM pg_temp.assert_true(EXISTS(
   SELECT 1 FROM app.audit_log WHERE entity_table='branch_photo' AND operation='I'
-  AND new_value ? 'photo_data'),'auditoria completa de fotos');
+  AND NOT (new_value ? 'photo_data') AND new_value->>'photo_sha256' IS NOT NULL),'auditoria de fotos con hash sin bytes');
  PERFORM pg_temp.assert_true(NOT EXISTS(
   SELECT 1 FROM app.audit_log WHERE transaction_id=pg_current_xact_id() AND created_by_user_id IS DISTINCT FROM uid),
   'actor de la transaccion');
@@ -414,8 +441,8 @@ BEGIN
  PERFORM pg_temp.assert_true((SELECT deleted_by_user_id=uid AND updated_by_user_id=uid FROM app.branch WHERE id=sid),'actor de baja logica');
  SET CONSTRAINTS ALL IMMEDIATE;
  PERFORM pg_temp.assert_true(
-  EXISTS(SELECT 1 FROM app.business WHERE id=bid AND deleted_at IS NULL)
-  AND NOT EXISTS(SELECT 1 FROM app.branch WHERE business_id=bid AND deleted_at IS NULL),
+  EXISTS(SELECT 1 FROM app.business WHERE id=bid AND status <> 'archived')
+  AND NOT EXISTS(SELECT 1 FROM app.branch WHERE business_id=bid AND status IN ('active','temporarily_closed')),
   'negocio vigente sin sucursales');
  PERFORM app.soft_delete_business(bid,uid);
  PERFORM pg_temp.assert_true(NOT app.is_business_owner(uid,bid),'negocio eliminado revoca acceso de propietarios');

@@ -1,3 +1,5 @@
+-- La vigencia se determina por ACTIVE o por el estado del dominio; DELETED_AT es auditoria.
+-- Para dar de baja: ACTIVE=false, negocio=archived, sucursal=permanently_closed, resena=deleted, anuncio ACTIVE=false.
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS POSTGIS
@@ -60,8 +62,7 @@ CREATE TABLE CATALOG.CATEGORY (
 	CHECK (
 		BTRIM(CODE) <> ''
 		AND BTRIM(NAME) <> ''
-	),
-	CHECK ((DELETED_AT IS NULL) = ACTIVE)
+	)
 );
 
 CREATE INDEX CATEGORY_PARENT_IDX ON CATALOG.CATEGORY (PARENT_ID);
@@ -110,8 +111,7 @@ CREATE TABLE CATALOG.SERVICE_PRODUCT (
 	CHECK (
 		BTRIM(CODE) <> ''
 		AND BTRIM(NAME) <> ''
-	),
-	CHECK ((DELETED_AT IS NULL) = ACTIVE)
+	)
 );
 
 CREATE INDEX SERVICE_PRODUCT_SORT_IDX ON CATALOG.SERVICE_PRODUCT (SORT_ORDER)
@@ -138,8 +138,7 @@ CREATE TABLE CATALOG.FEATURE (
 	CHECK (
 		BTRIM(CODE) <> ''
 		AND BTRIM(NAME) <> ''
-	),
-	CHECK ((DELETED_AT IS NULL) = ACTIVE)
+	)
 );
 
 CREATE INDEX FEATURE_SORT_IDX ON CATALOG.FEATURE (SORT_ORDER)
@@ -166,8 +165,7 @@ CREATE TABLE CATALOG.PAYMENT_METHOD (
 	CHECK (
 		BTRIM(CODE) <> ''
 		AND BTRIM(NAME) <> ''
-	),
-	CHECK ((DELETED_AT IS NULL) = ACTIVE)
+	)
 );
 
 CREATE INDEX PAYMENT_METHOD_SORT_IDX ON CATALOG.PAYMENT_METHOD (SORT_ORDER)
@@ -191,8 +189,7 @@ CREATE TABLE CATALOG.SUBSCRIPTION_TYPE (
 	DELETED_BY_USER_ID UUID,
  CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- DELETED_AT TIMESTAMPTZ,
- CHECK ((DELETED_AT IS NULL) = ACTIVE)
+ DELETED_AT TIMESTAMPTZ
 );
 
 CREATE INDEX SUBSCRIPTION_TYPE_SORT_IDX ON CATALOG.SUBSCRIPTION_TYPE (SORT_ORDER) WHERE ACTIVE;
@@ -211,8 +208,7 @@ CREATE TABLE CATALOG.BRANCH_STATUS (
 	DELETED_BY_USER_ID UUID,
  CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- DELETED_AT TIMESTAMPTZ,
- CHECK ((DELETED_AT IS NULL) = ACTIVE)
+ DELETED_AT TIMESTAMPTZ
 );
 
 CREATE TRIGGER BRANCH_STATUS_TOUCH
@@ -233,8 +229,7 @@ CREATE TABLE CATALOG.BUSINESS_STATUS (
 	DELETED_BY_USER_ID UUID,
  CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- DELETED_AT TIMESTAMPTZ,
- CHECK ((DELETED_AT IS NULL) = ACTIVE)
+ DELETED_AT TIMESTAMPTZ
 );
 
 CREATE TRIGGER BUSINESS_STATUS_TOUCH
@@ -257,8 +252,7 @@ CREATE TABLE CATALOG.SUBSCRIPTION_STATUS (
 	DELETED_BY_USER_ID UUID,
  CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- DELETED_AT TIMESTAMPTZ,
- CHECK ((DELETED_AT IS NULL) = ACTIVE)
+ DELETED_AT TIMESTAMPTZ
 );
 
 CREATE TRIGGER SUBSCRIPTION_STATUS_TOUCH
@@ -280,8 +274,7 @@ CREATE TABLE CATALOG.SUBSCRIPTION_PAYMENT_STATUS (
 	DELETED_BY_USER_ID UUID,
  CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- DELETED_AT TIMESTAMPTZ,
- CHECK ((DELETED_AT IS NULL) = ACTIVE)
+ DELETED_AT TIMESTAMPTZ
 );
 
 CREATE TRIGGER SUBSCRIPTION_PAYMENT_STATUS_TOUCH
@@ -304,8 +297,7 @@ CREATE TABLE CATALOG.REVIEW_MODERATION_STATUS (
 	DELETED_BY_USER_ID UUID,
  CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- DELETED_AT TIMESTAMPTZ,
- CHECK ((DELETED_AT IS NULL) = ACTIVE)
+ DELETED_AT TIMESTAMPTZ
 );
 
 CREATE TRIGGER REVIEW_MODERATION_STATUS_TOUCH
@@ -314,54 +306,8 @@ BEFORE UPDATE ON CATALOG.REVIEW_MODERATION_STATUS FOR EACH ROW EXECUTE FUNCTION 
 INSERT INTO CATALOG.REVIEW_MODERATION_STATUS (CODE, NAME, SORT_ORDER) VALUES
  ('visible', 'Visible', 10),
  ('hidden', 'Oculta', 20),
- ('flagged', 'Marcada para revision', 30);
-
-CREATE TABLE CATALOG.AD_PAYMENT_STATUS (
- CODE VARCHAR(20) PRIMARY KEY CHECK (BTRIM(CODE) <> ''),
- NAME VARCHAR(150) NOT NULL CHECK (BTRIM(NAME) <> ''),
- SORT_ORDER INT NOT NULL DEFAULT 0,
- ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
-	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
-	UPDATED_BY_USER_ID UUID,
-	DELETED_BY_USER_ID UUID,
- CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- DELETED_AT TIMESTAMPTZ,
- CHECK ((DELETED_AT IS NULL) = ACTIVE)
-);
-
-CREATE TRIGGER AD_PAYMENT_STATUS_TOUCH
-BEFORE UPDATE ON CATALOG.AD_PAYMENT_STATUS FOR EACH ROW EXECUTE FUNCTION APP.TOUCH();
-
-INSERT INTO CATALOG.AD_PAYMENT_STATUS (CODE, NAME, SORT_ORDER) VALUES
- ('pending', 'Pendiente', 10),
- ('paid', 'Pagado', 20),
- ('refunded', 'Reembolsado', 30),
- ('cancelled', 'Cancelado', 40);
-
-CREATE TABLE CATALOG.AD_STATUS (
- CODE VARCHAR(20) PRIMARY KEY CHECK (BTRIM(CODE) <> ''),
- NAME VARCHAR(150) NOT NULL CHECK (BTRIM(NAME) <> ''),
- SORT_ORDER INT NOT NULL DEFAULT 0,
- ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
-	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
-	UPDATED_BY_USER_ID UUID,
-	DELETED_BY_USER_ID UUID,
- CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
- DELETED_AT TIMESTAMPTZ,
- CHECK ((DELETED_AT IS NULL) = ACTIVE)
-);
-
-CREATE TRIGGER AD_STATUS_TOUCH
-BEFORE UPDATE ON CATALOG.AD_STATUS FOR EACH ROW EXECUTE FUNCTION APP.TOUCH();
-
-INSERT INTO CATALOG.AD_STATUS (CODE, NAME, SORT_ORDER) VALUES
- ('draft', 'Borrador', 10),
- ('active', 'Activa', 20),
- ('paused', 'Pausada', 30),
- ('completed', 'Finalizada', 40),
- ('cancelled', 'Cancelada', 50);
+ ('flagged', 'Marcada para revision', 30),
+ ('deleted', 'Eliminada', 40);
 
 -- Configuracion dinamica: global y alcances, valores JSON tipados y rangos temporales.
 CREATE TABLE CATALOG.PARAMETER_DEFINITION (
@@ -488,7 +434,7 @@ BEGIN
   IF n<1 OR n>(CASE p_code WHEN 'photo.max_bytes' THEN 52428800
        WHEN 'search.default_radius_m' THEN 50000 WHEN 'search.default_limit' THEN 100 ELSE 365 END)
   THEN RAISE EXCEPTION 'Valor incompatible con consumidor: %',p_code; END IF;
- ELSIF p_code IN ('ad.require_paid','review.moderation_post') AND p_type<>'boolean' THEN
+ ELSIF p_code='review.moderation_post' AND p_type<>'boolean' THEN
   RAISE EXCEPTION 'Parametro % requiere boolean',p_code;
  END IF;
 END $$;
@@ -521,7 +467,7 @@ BEGIN
  END IF;
  CASE NEW.scope_type
   WHEN 'global' THEN valid_scope:=NEW.scope_id IS NULL;
-  WHEN 'branch' THEN SELECT EXISTS(SELECT 1 FROM app.branch WHERE id=NEW.scope_id AND deleted_at IS NULL) INTO valid_scope;
+  WHEN 'branch' THEN SELECT EXISTS(SELECT 1 FROM app.branch WHERE id=NEW.scope_id AND status IN ('active','temporarily_closed')) INTO valid_scope;
   ELSE valid_scope:=false;
  END CASE;
  IF NOT valid_scope THEN RAISE EXCEPTION 'Alcance inexistente o inactivo'; END IF;
@@ -579,7 +525,6 @@ CREATE TABLE GEO.TERRITORY (
 	CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	DELETED_AT TIMESTAMPTZ,
-	CHECK ((DELETED_AT IS NULL) = ACTIVE),
 	CHECK (BTRIM(NAME) <> ''),
 	CHECK (
 		BOUNDARY IS NULL
@@ -664,6 +609,7 @@ CREATE TABLE APP.BUSINESS_OWNER (
  ID UUID PRIMARY KEY DEFAULT UUIDV7(),
  BUSINESS_ID UUID NOT NULL REFERENCES APP.BUSINESS (ID),
  USER_ID UUID NOT NULL,
+ ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
  CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
  UPDATED_BY_USER_ID UUID,
  DELETED_BY_USER_ID UUID,
@@ -672,9 +618,9 @@ CREATE TABLE APP.BUSINESS_OWNER (
  DELETED_AT TIMESTAMPTZ,
  UNIQUE (BUSINESS_ID, USER_ID)
 );
-CREATE INDEX OWNER_USER_IDX ON APP.BUSINESS_OWNER (USER_ID, BUSINESS_ID) WHERE DELETED_AT IS NULL;
+CREATE INDEX OWNER_USER_IDX ON APP.BUSINESS_OWNER (USER_ID, BUSINESS_ID) WHERE active;
 
--- Suscripcion del negocio al sistema, independiente del pago de publicidad.
+-- Suscripcion del negocio al sistema.
 -- El importe acordado se conserva aunque cambie el catalogo de tipos.
 CREATE TABLE APP.BUSINESS_SUBSCRIPTION (
  ID UUID PRIMARY KEY DEFAULT UUIDV7(),
@@ -694,7 +640,7 @@ CREATE TABLE APP.BUSINESS_SUBSCRIPTION (
 );
 
 CREATE INDEX SUBSCRIPTION_BUSINESS_IDX ON APP.BUSINESS_SUBSCRIPTION (BUSINESS_ID, STARTS_AT DESC)
-WHERE DELETED_AT IS NULL;
+WHERE status <> 'cancelled';
 CREATE INDEX SUBSCRIPTION_TYPE_IDX ON APP.BUSINESS_SUBSCRIPTION (SUBSCRIPTION_TYPE_ID);
 CREATE TRIGGER SUBSCRIPTION_TOUCH
 BEFORE UPDATE ON APP.BUSINESS_SUBSCRIPTION FOR EACH ROW EXECUTE FUNCTION APP.TOUCH();
@@ -762,15 +708,15 @@ CREATE TABLE APP.BRANCH (
 
 CREATE INDEX BRANCH_BUSINESS_IDX ON APP.BRANCH (BUSINESS_ID)
 WHERE
-	DELETED_AT IS NULL;
+	STATUS IN ('active','temporarily_closed');
 
 CREATE INDEX BRANCH_LOCATION_GIX ON APP.BRANCH USING GIST (LOCATION)
 WHERE
-	DELETED_AT IS NULL;
+	STATUS IN ('active','temporarily_closed');
 
 CREATE INDEX BRANCH_TERRITORY_IDX ON APP.BRANCH (TERRITORY_ID)
 WHERE
-	DELETED_AT IS NULL;
+	STATUS IN ('active','temporarily_closed');
 
 CREATE TRIGGER BRANCH_TOUCH
 BEFORE UPDATE ON APP.BRANCH FOR EACH ROW
@@ -797,7 +743,7 @@ CREATE OR REPLACE FUNCTION APP.IS_BUSINESS_OWNER (P_USER_ID UUID, P_BUSINESS_ID 
 RETURNS BOOLEAN LANGUAGE SQL STABLE AS $$
  SELECT EXISTS(SELECT 1 FROM app.business_owner o JOIN app.business b ON b.id=o.business_id
   WHERE o.business_id=p_business_id AND o.user_id=p_user_id
-   AND o.deleted_at IS NULL AND b.deleted_at IS NULL) $$;
+   AND o.active AND b.status <> 'archived') $$;
 
 -- Creacion y publicacion atomica; el backend autentica y verifica p_user_id antes de invocar.
 CREATE OR REPLACE FUNCTION APP.CREATE_BUSINESS_WITH_BRANCH (
@@ -830,16 +776,16 @@ END $$;
 
 CREATE OR REPLACE FUNCTION APP.SOFT_DELETE_BRANCH (P_BRANCH_ID UUID, P_ACTOR UUID) RETURNS VOID LANGUAGE PLPGSQL AS $$
 BEGIN
- UPDATE app.branch SET deleted_at=now(),deleted_by_user_id=p_actor,is_primary=false
- WHERE id=p_branch_id AND deleted_at IS NULL;
+ UPDATE app.branch SET status='permanently_closed',deleted_at=now(),deleted_by_user_id=p_actor,is_primary=false
+ WHERE id=p_branch_id AND status IN ('active','temporarily_closed');
  -- Tambien se permite dar de baja la ultima sucursal.
 END $$;
 
 CREATE OR REPLACE FUNCTION APP.SOFT_DELETE_BUSINESS (P_BUSINESS_ID UUID, P_ACTOR UUID) RETURNS VOID LANGUAGE PLPGSQL AS $$
 BEGIN
  UPDATE app.business SET deleted_at=now(),deleted_by_user_id=p_actor,status='archived'
- WHERE id=p_business_id AND deleted_at IS NULL;
- UPDATE app.branch SET deleted_at=coalesce(deleted_at,now()),deleted_by_user_id=coalesce(deleted_by_user_id,p_actor),is_primary=false
+ WHERE id=p_business_id AND status <> 'archived';
+ UPDATE app.branch SET status='permanently_closed',deleted_at=coalesce(deleted_at,now()),deleted_by_user_id=coalesce(deleted_by_user_id,p_actor),is_primary=false
  WHERE business_id=p_business_id;
 END $$;
 
@@ -902,6 +848,7 @@ CREATE TABLE APP.BRANCH_PAYMENT (
 );
 
 CREATE TABLE APP.BRANCH_CONTACT (
+ ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
 	ID UUID PRIMARY KEY DEFAULT UUIDV7(),
 	BRANCH_ID UUID NOT NULL REFERENCES APP.BRANCH (ID),
 	CONTACT_TYPE VARCHAR(20) NOT NULL CHECK (
@@ -928,11 +875,11 @@ CREATE TABLE APP.BRANCH_CONTACT (
 CREATE UNIQUE INDEX CONTACT_PRIMARY_IDX ON APP.BRANCH_CONTACT (BRANCH_ID, CONTACT_TYPE)
 WHERE
 	IS_PRIMARY
-	AND DELETED_AT IS NULL;
+	AND active;
 
 -- Indices de acceso a contactos y filtros inversos de asociaciones vigentes.
 CREATE INDEX CONTACT_BRANCH_IDX ON APP.BRANCH_CONTACT (BRANCH_ID)
-WHERE DELETED_AT IS NULL;
+WHERE active;
 CREATE INDEX BRANCH_SERVICE_PRODUCT_REVERSE ON APP.BRANCH_SERVICE_PRODUCT (SERVICE_PRODUCT_ID, BRANCH_ID) WHERE ACTIVE;
 CREATE INDEX BRANCH_FEATURE_REVERSE ON APP.BRANCH_FEATURE (FEATURE_ID, BRANCH_ID) WHERE ACTIVE;
 CREATE INDEX BRANCH_PAYMENT_REVERSE ON APP.BRANCH_PAYMENT (METHOD_ID, BRANCH_ID) WHERE ACTIVE;
@@ -1042,7 +989,7 @@ DECLARE localts timestamp := p_when AT TIME ZONE 'America/La_Paz';
 BEGIN
  IF p_when IS NULL THEN RAISE EXCEPTION 'Fecha requerida'; END IF;
  IF NOT EXISTS(SELECT 1 FROM app.branch b JOIN app.business x ON x.id=b.business_id
-  WHERE b.id=p_branch AND b.deleted_at IS NULL AND x.deleted_at IS NULL
+  WHERE b.id=p_branch
   AND b.status='active' AND x.status='published')
  THEN RETURN false; END IF;
 
@@ -1107,9 +1054,11 @@ EXECUTE FUNCTION APP.TOUCH ();
 -- Fotos unicamente de propietario o administrador (validacion de actor en funcion).
 -- JPEG, PNG y WebP. Los bytes quedan en PostgreSQL (TOAST), no URLs ni rutas externas.
 CREATE TABLE APP.BRANCH_PHOTO (
+ ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
 	ID UUID PRIMARY KEY DEFAULT UUIDV7(),
 	BRANCH_ID UUID NOT NULL REFERENCES APP.BRANCH (ID),
 	PHOTO_DATA BYTEA NOT NULL,
+ PHOTO_SHA256 BYTEA GENERATED ALWAYS AS (PG_CATALOG.SHA256(PHOTO_DATA)) STORED,
 	MIME_TYPE VARCHAR(30) NOT NULL CHECK (
 		MIME_TYPE IN ('image/jpeg', 'image/png', 'image/webp')
 	),
@@ -1130,13 +1079,16 @@ CREATE TABLE APP.BRANCH_PHOTO (
 -- Decision de producto: se permiten varias fotos principales por sucursal.
 CREATE INDEX PHOTO_BRANCH_IDX ON APP.BRANCH_PHOTO (BRANCH_ID, SORT_ORDER)
 WHERE
-	DELETED_AT IS NULL;
+	ACTIVE;
 
--- Fotos del negocio, tambien cuando no tiene sucursales. Historial completo en audit_log.
+-- Fotos del negocio, tambien sin sucursales: hash hexadecimal en audit_log;
+-- bytes anteriores deduplicados en photo_blob al reemplazar, borrar o truncar.
 CREATE TABLE APP.BUSINESS_PHOTO (
+ ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
  ID UUID PRIMARY KEY DEFAULT UUIDV7(),
  BUSINESS_ID UUID NOT NULL REFERENCES APP.BUSINESS (ID),
  PHOTO_DATA BYTEA NOT NULL,
+ PHOTO_SHA256 BYTEA GENERATED ALWAYS AS (PG_CATALOG.SHA256(PHOTO_DATA)) STORED,
  MIME_TYPE VARCHAR(30) NOT NULL CHECK (MIME_TYPE IN ('image/jpeg','image/png','image/webp')),
  FILE_SIZE BIGINT GENERATED ALWAYS AS (OCTET_LENGTH(PHOTO_DATA)) STORED,
  FILENAME VARCHAR(255),
@@ -1153,7 +1105,11 @@ CREATE TABLE APP.BUSINESS_PHOTO (
 );
 
 CREATE INDEX PHOTO_BUSINESS_IDX ON APP.BUSINESS_PHOTO (BUSINESS_ID, SORT_ORDER)
-WHERE DELETED_AT IS NULL;
+WHERE active;
+
+-- Dos hashes STORED e indices para recuperar tambien fotos vivas; costo de hash en cada escritura de bytes.
+CREATE INDEX BRANCH_PHOTO_SHA256_IDX ON APP.BRANCH_PHOTO USING BTREE (PHOTO_SHA256);
+CREATE INDEX BUSINESS_PHOTO_SHA256_IDX ON APP.BUSINESS_PHOTO USING BTREE (PHOTO_SHA256);
 
 CREATE OR REPLACE FUNCTION APP.VALIDATE_PHOTO_BYTES () RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
 DECLARE mx integer; sig text;
@@ -1189,7 +1145,7 @@ CREATE OR REPLACE FUNCTION APP.ADD_BUSINESS_PHOTO (
 ) RETURNS UUID LANGUAGE PLPGSQL AS $$
 DECLARE pid uuid;
 BEGIN
- IF NOT EXISTS(SELECT 1 FROM app.business WHERE id=p_business AND deleted_at IS NULL) THEN
+ IF NOT EXISTS(SELECT 1 FROM app.business WHERE id=p_business AND status <> 'archived') THEN
   RAISE EXCEPTION 'Negocio inexistente o inactivo'; END IF;
  IF NOT coalesce(p_is_admin,false) AND NOT app.is_business_owner(p_user_id,p_business) THEN
   RAISE EXCEPTION 'Solo propietario o administrador'; END IF;
@@ -1211,7 +1167,7 @@ CREATE OR REPLACE FUNCTION APP.ADD_PHOTO (
 ) RETURNS UUID LANGUAGE PLPGSQL AS $$
 DECLARE bid uuid; pid uuid;
 BEGIN
- SELECT business_id INTO STRICT bid FROM app.branch WHERE id=p_branch AND deleted_at IS NULL;
+ SELECT business_id INTO STRICT bid FROM app.branch WHERE id=p_branch AND status IN ('active','temporarily_closed');
  IF NOT coalesce(p_is_admin,false) AND NOT app.is_business_owner(p_user_id,bid) THEN
   RAISE EXCEPTION 'Solo propietario o administrador'; END IF;
  INSERT INTO app.branch_photo(branch_id,created_by_user_id,photo_data,mime_type,is_primary,filename,alt_text)
@@ -1247,11 +1203,11 @@ CREATE TABLE APP.REVIEW (
 
 CREATE INDEX REVIEW_BRANCH_IDX ON APP.REVIEW (BRANCH_ID, MODERATION_STATUS, CREATED_AT DESC)
 WHERE
-	DELETED_AT IS NULL;
+	MODERATION_STATUS <> 'deleted';
 
 CREATE INDEX REVIEW_USER_IDX ON APP.REVIEW (USER_ID, CREATED_AT DESC)
 WHERE
-	DELETED_AT IS NULL;
+	MODERATION_STATUS <> 'deleted';
 
 CREATE TRIGGER REVIEW_TOUCH
 BEFORE UPDATE ON APP.REVIEW FOR EACH ROW
@@ -1262,61 +1218,43 @@ CREATE OR REPLACE FUNCTION APP.REPLY_TO_REVIEW (P_REVIEW_ID UUID, P_USER_ID UUID
 DECLARE bid uuid;
 BEGIN
  SELECT b.business_id INTO STRICT bid FROM app.review r JOIN app.branch b ON b.id=r.branch_id
- WHERE r.id=p_review_id AND r.deleted_at IS NULL AND b.deleted_at IS NULL;
+ WHERE r.id=p_review_id AND r.moderation_status <> 'deleted' AND b.status IN ('active','temporarily_closed');
  IF NOT app.is_business_owner(p_user_id,bid) THEN RAISE EXCEPTION 'No es propietario'; END IF;
  IF p_text IS NULL OR btrim(p_text)='' THEN RAISE EXCEPTION 'Respuesta requerida'; END IF;
  UPDATE app.review SET reply_text=p_text,reply_by_user_id=p_user_id,replied_at=clock_timestamp()
- WHERE id=p_review_id AND deleted_at IS NULL;
+ WHERE id=p_review_id AND moderation_status <> 'deleted';
  IF NOT FOUND THEN RAISE EXCEPTION 'Resena no encontrada'; END IF;
  RETURN p_review_id;
 END $$;
 CREATE TABLE APP.FAVORITE (
+ ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
 	USER_ID UUID NOT NULL,
 	BRANCH_ID UUID NOT NULL REFERENCES APP.BRANCH (ID),
 	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
-	UPDATED_BY_USER_ID UUID,
-	DELETED_BY_USER_ID UUID,
 	CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	UPDATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	DELETED_AT TIMESTAMPTZ,
 	PRIMARY KEY (USER_ID, BRANCH_ID)
 );
-
-CREATE INDEX FAVORITE_BRANCH_IDX ON APP.FAVORITE (BRANCH_ID)
-WHERE
-	DELETED_AT IS NULL;
 
 CREATE OR REPLACE FUNCTION APP.TOGGLE_FAVORITE (P_USER_ID UUID, P_BRANCH UUID) RETURNS BOOLEAN LANGUAGE PLPGSQL AS $$
 DECLARE currently_active boolean;
 BEGIN
- IF NOT EXISTS(SELECT 1 FROM app.branch WHERE id=p_branch AND deleted_at IS NULL) THEN
+ IF NOT EXISTS(SELECT 1 FROM app.branch WHERE id=p_branch AND status IN ('active','temporarily_closed')) THEN
   RAISE EXCEPTION 'Sucursal no disponible'; END IF;
  INSERT INTO app.favorite(user_id,branch_id) VALUES(p_user_id,p_branch)
- ON CONFLICT(user_id,branch_id) DO UPDATE SET deleted_at=CASE
- WHEN app.favorite.deleted_at IS NULL THEN clock_timestamp() ELSE NULL END
- RETURNING deleted_at IS NULL INTO currently_active;
+ ON CONFLICT(user_id,branch_id) DO UPDATE SET active=NOT app.favorite.active
+ RETURNING active INTO currently_active;
  RETURN currently_active;
 END $$;
 
--- Publicidad: periodo fijo en BOB, destino negocio o sucursal, posicion visible.
+-- Publicidad: periodo de promocion de un negocio o una sucursal.
 CREATE TABLE APP.AD_PLACEMENT (
 	ID UUID PRIMARY KEY DEFAULT UUIDV7(),
 	BUSINESS_ID UUID REFERENCES APP.BUSINESS (ID),
 	BRANCH_ID UUID REFERENCES APP.BRANCH (ID),
-	SLOT VARCHAR(30) NOT NULL CHECK (
-		SLOT IN (
-			'featured_list',
-			'map_highlight',
-			'search_sponsored'
-		)
-	),
 	STARTS_AT TIMESTAMPTZ NOT NULL,
 	ENDS_AT TIMESTAMPTZ NOT NULL,
-	AMOUNT_BOB NUMERIC(14, 2) NOT NULL CHECK (AMOUNT_BOB >= 0),
-	PAYMENT_STATUS VARCHAR(20) NOT NULL DEFAULT 'pending' REFERENCES CATALOG.AD_PAYMENT_STATUS (CODE),
 	PRIORITY INT NOT NULL DEFAULT 0,
-	STATUS VARCHAR(20) NOT NULL DEFAULT 'draft' REFERENCES CATALOG.AD_STATUS (CODE),
-	INVOICE_REF VARCHAR(100),
+	ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
 	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
 	UPDATED_BY_USER_ID UUID,
 	DELETED_BY_USER_ID UUID,
@@ -1327,9 +1265,9 @@ CREATE TABLE APP.AD_PLACEMENT (
 	CHECK (ENDS_AT > STARTS_AT)
 );
 
-CREATE INDEX AD_PERIOD_IDX ON APP.AD_PLACEMENT (STARTS_AT, ENDS_AT, SLOT)
+CREATE INDEX AD_PERIOD_IDX ON APP.AD_PLACEMENT (STARTS_AT, ENDS_AT)
 WHERE
-	DELETED_AT IS NULL;
+	ACTIVE;
 
 CREATE INDEX AD_BUSINESS_IDX ON APP.AD_PLACEMENT (BUSINESS_ID)
 WHERE
@@ -1346,21 +1284,20 @@ EXECUTE FUNCTION APP.TOUCH ();
 CREATE OR REPLACE FUNCTION APP.ACTIVE_ADS (P_AT TIMESTAMPTZ DEFAULT NOW()) RETURNS TABLE (
 	AD_ID UUID,
 	BRANCH_ID UUID,
-	SLOT TEXT,
 	PRIORITY INT
 ) LANGUAGE SQL STABLE AS $$
- SELECT a.id,b.id,a.slot,a.priority FROM app.ad_placement a JOIN app.branch b
+ SELECT a.id,b.id,a.priority FROM app.ad_placement a JOIN app.branch b
  ON (a.branch_id=b.id OR (a.business_id=b.business_id AND a.branch_id IS NULL))
  JOIN app.business x ON x.id=b.business_id
- WHERE a.deleted_at IS NULL AND a.status='active' AND (NOT catalog.param_bool('ad.require_paid') OR a.payment_status='paid')
+ WHERE a.active
  AND a.starts_at<=p_at AND a.ends_at>p_at
- AND b.deleted_at IS NULL AND x.deleted_at IS NULL AND x.status='published'
-  AND b.status<>'permanently_closed' $$;
+ AND x.status='published'
+ AND b.status IN ('active','temporarily_closed') $$;
 
 CREATE OR REPLACE FUNCTION APP.EXPIRE_ADS (P_AT TIMESTAMPTZ DEFAULT NOW()) RETURNS INTEGER LANGUAGE PLPGSQL AS $$
 DECLARE n int;
 BEGIN
- UPDATE app.ad_placement SET status='completed' WHERE status='active' AND ends_at<=p_at AND deleted_at IS NULL;
+ UPDATE app.ad_placement SET active=false WHERE active AND ends_at<=p_at;
  GET DIAGNOSTICS n=ROW_COUNT; RETURN n;
 END $$;
 
@@ -1388,11 +1325,11 @@ CREATE TABLE CATALOG.SEARCH_SYNONYM (
 
 CREATE INDEX BUSINESS_NAME_TRGM_IDX ON APP.BUSINESS USING GIN ((APP.NORMALIZE (TRADE_NAME)) GIN_TRGM_OPS)
 WHERE
-	DELETED_AT IS NULL;
+	STATUS = 'published';
 
 CREATE INDEX BRANCH_NAME_TRGM_IDX ON APP.BRANCH USING GIN ((APP.NORMALIZE (NAME)) GIN_TRGM_OPS)
 WHERE
-	DELETED_AT IS NULL;
+	STATUS IN ('active','temporarily_closed');
 
 -- Las expresiones coinciden con las usadas por busqueda y autocompletado.
 CREATE INDEX SYNONYM_TERM_IDX ON CATALOG.SEARCH_SYNONYM (APP.NORMALIZE(TERM))
@@ -1420,10 +1357,8 @@ FROM
 	APP.BRANCH S
 	JOIN APP.BUSINESS B ON B.ID = S.BUSINESS_ID
 WHERE
-	S.DELETED_AT IS NULL
-	AND B.DELETED_AT IS NULL
-	AND B.STATUS = 'published'
-	AND S.STATUS <> 'permanently_closed';
+	S.STATUS IN ('active','temporarily_closed')
+	AND B.STATUS = 'published';
 
 -- Parametros: filtro geometrico por viewport, punto/radio, categoria y descendientes,
 -- Solo publicados; SQL estatico. Patrocinio primero, luego relevancia, distancia e ID.
@@ -1513,7 +1448,7 @@ BEGIN
   c.location,c.branch_status,c.business_status
  FROM candidates c LEFT JOIN LATERAL(
   SELECT round(avg(rv.rating)::numeric,2) AS avg_rating,count(*) AS n FROM app.review rv
-  WHERE rv.branch_id=c.branch_id AND rv.deleted_at IS NULL AND rv.moderation_status='visible') r ON true
+  WHERE rv.branch_id=c.branch_id AND rv.moderation_status='visible') r ON true
  ORDER BY sponsored DESC,
  CASE WHEN q IS NOT NULL THEN similarity(app.normalize(c.trade_name),q) ELSE 0 END DESC,
  c.dist ASC NULLS LAST,c.branch_id
@@ -1523,7 +1458,7 @@ END $$;
 CREATE OR REPLACE FUNCTION APP.AUTOCOMPLETE (P_PREFIX TEXT, P_LIMIT INTEGER DEFAULT 12) RETURNS TABLE (SUGGESTION TEXT, SUGGESTION_TYPE TEXT) LANGUAGE SQL STABLE AS $$
  SELECT name,typ FROM (
  SELECT DISTINCT b.trade_name AS name,'business'::text AS typ,0 AS ord FROM app.business b
- WHERE b.deleted_at IS NULL AND b.status='published'
+ WHERE b.status='published'
  AND app.normalize(b.trade_name) LIKE app.normalize(p_prefix)||'%'
  UNION ALL
  SELECT DISTINCT c.name,'category',1 FROM catalog.category c WHERE c.active
@@ -1673,7 +1608,7 @@ SELECT
 			APP.FAVORITE F
 		WHERE
 			F.BRANCH_ID = S.ID
-			AND F.DELETED_AT IS NULL
+			AND F.active
 	) AS FAVORITES,
 	(
 		SELECT
@@ -1682,7 +1617,6 @@ SELECT
 			APP.REVIEW R
 		WHERE
 			R.BRANCH_ID = S.ID
-			AND R.DELETED_AT IS NULL
 			AND R.MODERATION_STATUS = 'visible'
 	) AS AVG_RATING
 FROM
@@ -1697,8 +1631,6 @@ SELECT
 	A.ID AS AD_ID,
 	A.BUSINESS_ID,
 	A.BRANCH_ID,
-	A.SLOT,
-	A.AMOUNT_BOB,
 	A.STARTS_AT,
 	A.ENDS_AT,
 	(
@@ -1746,7 +1678,7 @@ SELECT
 FROM
 	APP.AD_PLACEMENT A
 WHERE
-	A.DELETED_AT IS NULL;
+	A.ACTIVE;
 
 -- Auditoria de cambios. Se almacena el actor del framework cuando se provee.
 CREATE TABLE APP.AUDIT_LOG (
@@ -1763,28 +1695,163 @@ CREATE TABLE APP.AUDIT_LOG (
 
 CREATE INDEX AUDIT_ENTITY_IDX ON APP.AUDIT_LOG (ENTITY_SCHEMA, ENTITY_TABLE, CREATED_AT DESC);
 
-CREATE OR REPLACE FUNCTION APP.CAPTURE_AUDIT () RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
-DECLARE a jsonb; b jsonb;
-BEGIN
- IF TG_OP='INSERT' THEN a:=NULL; b:=to_jsonb(NEW);
- ELSIF TG_OP='DELETE' THEN a:=to_jsonb(OLD); b:=NULL;
- ELSE a:=to_jsonb(OLD); b:=to_jsonb(NEW); END IF;
- -- Las claves y photo_data se conservan dentro de las instantaneas completas.
- INSERT INTO app.audit_log(entity_schema,entity_table,operation,created_by_user_id,old_value,new_value)
- VALUES(TG_TABLE_SCHEMA,TG_TABLE_NAME,left(TG_OP,1),app.actor(),a,b);
- RETURN NULL;
-END $$;
+CREATE OR REPLACE FUNCTION APP.INSTALL_AUDIT_TRIGGERS (P_TABLE REGCLASS DEFAULT NULL)
+RETURNS VOID LANGUAGE PLPGSQL AS $$
+declare
+ r record;
+ excluded text[] := array[
+  'app.event','app.event_hist','app.daily_metric','app.monthly_metric','app.photo_blob'
+ ];
+begin
+ -- Si app.event se particiona, agregar tambien cada particion a excluded.
+ for r in
+  select c.oid,c.relispartition,n.nspname,c.relname
+  from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+  where c.relkind in ('r','p') and c.relpersistence<>'t'
+   and n.nspname not in ('public','information_schema')
+   and n.nspname !~ '^pg_' and c.oid<>'app.audit_log'::regclass
+   and not ((n.nspname||'.'||c.relname)=any(excluded))
+   and (p_table is null or c.oid=p_table)
+  order by c.relispartition,c.oid
+ loop
+  if not r.relispartition or not exists(
+   select 1 from pg_catalog.pg_trigger where tgrelid=r.oid and tgname='audit_capture_row'
+  ) then
+   execute format(
+    'CREATE OR REPLACE TRIGGER audit_capture_row AFTER INSERT OR UPDATE OR DELETE ON %I.%I
+     FOR EACH ROW EXECUTE FUNCTION app.capture_audit()',r.nspname,r.relname);
+  end if;
+  if not exists(
+   select 1 from pg_catalog.pg_trigger where tgrelid=r.oid and tgname='audit_capture_truncate'
+  ) then
+   execute format(
+    'CREATE TRIGGER audit_capture_truncate BEFORE TRUNCATE ON %I.%I
+     FOR EACH STATEMENT EXECUTE FUNCTION app.capture_truncate_audit()',r.nspname,r.relname);
+  end if;
+ end loop;
+end $$;
+
+CREATE OR REPLACE FUNCTION APP.REJECT_PHYSICAL_DELETE ()
+RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
+begin
+ raise exception 'Eliminacion fisica prohibida en %.%; utilice baja logica',tg_table_schema,tg_table_name;
+end $$;
+
+CREATE OR REPLACE FUNCTION APP.REJECT_UPDATE ()
+RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
+begin
+ raise exception 'Actualizacion prohibida en %.%; contenido inmutable',tg_table_schema,tg_table_name;
+end $$;
+
+CREATE TABLE APP.PHOTO_BLOB (
+ SHA256 BYTEA PRIMARY KEY CHECK (OCTET_LENGTH(SHA256)=32),
+ PHOTO_DATA BYTEA NOT NULL CHECK (OCTET_LENGTH(PHOTO_DATA)>0),
+ FILE_SIZE BIGINT GENERATED ALWAYS AS (OCTET_LENGTH(PHOTO_DATA)) STORED,
+ CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR(),
+ CHECK (SHA256 = PG_CATALOG.SHA256(PHOTO_DATA))
+);
+
+ALTER TABLE APP.PHOTO_BLOB ALTER COLUMN PHOTO_DATA SET STORAGE EXTERNAL;
+COMMENT ON TABLE APP.PHOTO_BLOB IS
+ 'Archivo inmutable deduplicado por contenido: una imagen de varios negocios comparte fila.
+ Los bytes anteriores se archivan al reemplazar, borrar o truncar fotos; las fotos vivas conservan sus bytes.
+ Auditoria: solo hash hexadecimal. Sin TOUCH ni auditoria propia.';
+
+CREATE TRIGGER PHOTO_BLOB_NO_UPDATE
+BEFORE UPDATE ON APP.PHOTO_BLOB
+FOR EACH ROW EXECUTE FUNCTION APP.REJECT_UPDATE();
+CREATE TRIGGER PHOTO_BLOB_NO_DELETE
+BEFORE DELETE ON APP.PHOTO_BLOB
+FOR EACH ROW EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
+CREATE TRIGGER PHOTO_BLOB_NO_TRUNCATE
+BEFORE TRUNCATE ON APP.PHOTO_BLOB
+FOR EACH STATEMENT EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
+
+CREATE OR REPLACE FUNCTION APP.CAPTURE_AUDIT ()
+RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
+declare
+ a jsonb;
+ b jsonb;
+ old_hash bytea;
+ new_hash bytea;
+ bytes_changed boolean := false;
+begin
+ if tg_table_schema='app' and tg_table_name in ('branch_photo','business_photo') then
+  if tg_op in ('UPDATE','DELETE') then
+   old_hash := pg_catalog.sha256(old.photo_data);
+   a := (to_jsonb(old)-'photo_data')
+    || jsonb_build_object('photo_sha256',encode(old_hash,'hex'));
+  end if;
+  if tg_op='UPDATE' then
+   bytes_changed := new.photo_data is distinct from old.photo_data;
+   if bytes_changed then
+    new_hash := pg_catalog.sha256(new.photo_data);
+   else
+    new_hash := old_hash;
+   end if;
+  elsif tg_op='INSERT' then
+   new_hash := pg_catalog.sha256(new.photo_data);
+  end if;
+  if tg_op in ('INSERT','UPDATE') then
+   b := (to_jsonb(new)-'photo_data')
+    || jsonb_build_object('photo_sha256',encode(new_hash,'hex'));
+  end if;
+  if tg_op='DELETE' or bytes_changed then
+   -- Trigger AFTER: archivar bytes y auditar es atomico con la modificacion de la foto.
+   insert into app.photo_blob(sha256,photo_data) values(old_hash,old.photo_data)
+   on conflict (sha256) do nothing;
+  end if;
+ else
+  if tg_op in ('UPDATE','DELETE') then a := to_jsonb(old); end if;
+  if tg_op in ('INSERT','UPDATE') then b := to_jsonb(new); end if;
+ end if;
+ insert into app.audit_log(entity_schema,entity_table,operation,created_by_user_id,old_value,new_value)
+ values(tg_table_schema,tg_table_name,left(tg_op,1),app.actor(),a,b);
+ return null;
+end $$;
 
 CREATE OR REPLACE FUNCTION APP.CAPTURE_TRUNCATE_AUDIT ()
 RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
-BEGIN
- EXECUTE format(
-  'INSERT INTO app.audit_log(entity_schema,entity_table,operation,created_by_user_id,old_value)
-   SELECT $1,$2,''T'',app.actor(),to_jsonb(r) FROM %I.%I r',
-  TG_TABLE_SCHEMA,TG_TABLE_NAME)
- USING TG_TABLE_SCHEMA,TG_TABLE_NAME;
- RETURN NULL;
-END $$;
+begin
+ if tg_table_schema='app' and tg_table_name in ('branch_photo','business_photo') then
+  -- BEFORE TRUNCATE conserva todos los bytes antes del snapshot; todo en la misma transaccion.
+  execute format(
+   'INSERT INTO app.photo_blob(sha256,photo_data)
+    SELECT pg_catalog.sha256(r.photo_data),r.photo_data FROM %I.%I r
+    ON CONFLICT (sha256) DO NOTHING',tg_table_schema,tg_table_name);
+  execute format(
+   'INSERT INTO app.audit_log(entity_schema,entity_table,operation,created_by_user_id,old_value)
+    SELECT $1,$2,''T'',app.actor(),
+     (to_jsonb(r)-''photo_data'')
+      || jsonb_build_object(''photo_sha256'',encode(pg_catalog.sha256(r.photo_data),''hex''))
+    FROM %I.%I r',tg_table_schema,tg_table_name)
+  using tg_table_schema,tg_table_name;
+ else
+  execute format(
+   'INSERT INTO app.audit_log(entity_schema,entity_table,operation,created_by_user_id,old_value)
+    SELECT $1,$2,''T'',app.actor(),to_jsonb(r) FROM %I.%I r',tg_table_schema,tg_table_name)
+  using tg_table_schema,tg_table_name;
+ end if;
+ return null;
+end $$;
+CREATE OR REPLACE FUNCTION APP.RECOVER_PHOTO (P_SHA256 BYTEA)
+RETURNS BYTEA LANGUAGE SQL STABLE AS $$
+ select coalesce(
+  (select b.photo_data from app.photo_blob b where b.sha256=p_sha256),
+  (select p.photo_data from app.branch_photo p where p.photo_sha256=p_sha256 limit 1),
+  (select p.photo_data from app.business_photo p where p.photo_sha256=p_sha256 limit 1)
+ )
+$$;
+
+CREATE OR REPLACE VIEW APP.AUDIT_PHOTO_HISTORY AS
+SELECT ENTITY_TABLE, OPERATION, CREATED_AT, CREATED_BY_USER_ID,
+ OLD_VALUE->>'id' AS OLD_PHOTO_ID,
+ OLD_VALUE->>'photo_sha256' AS OLD_PHOTO_SHA256,
+ NEW_VALUE->>'photo_sha256' AS NEW_PHOTO_SHA256
+FROM APP.AUDIT_LOG
+WHERE ENTITY_SCHEMA='app' AND ENTITY_TABLE IN ('branch_photo','business_photo');
+
 CREATE OR REPLACE FUNCTION APP.PROTECT_AUDIT_LOG ()
 RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
 BEGIN
@@ -1801,33 +1868,8 @@ CREATE TRIGGER AUDIT_LOG_NO_TRUNCATE
 BEFORE TRUNCATE ON APP.AUDIT_LOG
 FOR EACH STATEMENT EXECUTE FUNCTION APP.PROTECT_AUDIT_LOG();
 
-CREATE OR REPLACE FUNCTION APP.INSTALL_AUDIT_TRIGGERS (P_TABLE REGCLASS DEFAULT NULL)
-RETURNS VOID LANGUAGE PLPGSQL AS $$
-DECLARE r record;
-BEGIN
- FOR r IN
-  SELECT c.oid,c.relispartition,n.nspname,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-  WHERE c.relkind IN ('r','p') AND c.relpersistence<>'t'
-   AND n.nspname NOT IN ('public','information_schema')
-   AND n.nspname !~ '^pg_' AND c.oid<>'app.audit_log'::regclass
-   AND (p_table IS NULL OR c.oid=p_table)
-  ORDER BY c.relispartition,c.oid
- LOOP
-  IF NOT r.relispartition OR NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=r.oid AND tgname='audit_capture_row') THEN
-   EXECUTE format(
-    'CREATE OR REPLACE TRIGGER audit_capture_row AFTER INSERT OR UPDATE OR DELETE ON %I.%I
-     FOR EACH ROW EXECUTE FUNCTION app.capture_audit()',r.nspname,r.relname);
-  END IF;
-  IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=r.oid AND tgname='audit_capture_truncate') THEN
-   EXECUTE format(
-    'CREATE TRIGGER audit_capture_truncate BEFORE TRUNCATE ON %I.%I
-     FOR EACH STATEMENT EXECUTE FUNCTION app.capture_truncate_audit()',r.nspname,r.relname);
-  END IF;
- END LOOP;
-END $$;
-
 -- Completar el sellado de actualizacion de las tablas sin trigger TOUCH propio.
--- audit_log solo conserva actor y fecha de creacion; es inmutable y no recibe TOUCH.
+-- audit_log es inmutable; photo_blob carece de las cinco columnas requeridas y no recibe TOUCH.
 DO $$
 DECLARE r record;
 BEGIN
@@ -1874,14 +1916,14 @@ BEGIN
  ELSE
   bid:=NEW.business_id;
  END IF;
- IF EXISTS(SELECT 1 FROM app.business WHERE id=bid AND deleted_at IS NULL AND status='published')
+ IF EXISTS(SELECT 1 FROM app.business WHERE id=bid AND status='published')
  THEN
   IF TG_TABLE_NAME='business' AND NOT EXISTS(
    SELECT 1 FROM app.branch s JOIN app.branch_category bc ON bc.branch_id=s.id AND bc.active
    JOIN catalog.category c ON c.id=bc.category_id AND c.active
-   WHERE s.business_id=bid AND s.deleted_at IS NULL)
+   WHERE s.business_id=bid AND s.status IN ('active','temporarily_closed'))
   THEN RAISE EXCEPTION 'Publicacion requiere al menos una categoria vigente'; END IF;
-  IF EXISTS(SELECT 1 FROM app.branch s WHERE s.business_id=bid AND s.deleted_at IS NULL
+  IF EXISTS(SELECT 1 FROM app.branch s WHERE s.business_id=bid AND s.status IN ('active','temporarily_closed')
    AND NOT EXISTS(SELECT 1 FROM app.branch_category bc JOIN catalog.category c ON c.id=bc.category_id AND c.active
     WHERE bc.branch_id=s.id AND bc.active))
   THEN RAISE EXCEPTION 'Cada sucursal publicada requiere categoria vigente'; END IF;
@@ -1894,7 +1936,7 @@ AFTER INSERT OR UPDATE OF STATUS ON APP.BUSINESS
 DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION APP.CHECK_PUBLICATION_CATEGORIES();
 
 CREATE CONSTRAINT TRIGGER BRANCH_PUBLICATION_CATEGORY
-AFTER INSERT OR UPDATE OF BUSINESS_ID, DELETED_AT ON APP.BRANCH
+AFTER INSERT OR UPDATE OF BUSINESS_ID, STATUS ON APP.BRANCH
 DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION APP.CHECK_PUBLICATION_CATEGORIES();
 
 -- Operaciones del dashboard (la identidad de administrador se valida en el backend).
@@ -1906,14 +1948,14 @@ CREATE OR REPLACE FUNCTION APP.ADMIN_UPDATE_BUSINESS (
 ) RETURNS VOID LANGUAGE PLPGSQL AS $$
 BEGIN
  UPDATE app.business SET trade_name=p_name,description=p_description,
- updated_by_user_id=p_actor WHERE id=p_business_id AND deleted_at IS NULL;
+ updated_by_user_id=p_actor WHERE id=p_business_id AND status <> 'archived';
  IF NOT FOUND THEN RAISE EXCEPTION 'Negocio inexistente o inactivo'; END IF;
 END $$;
 
 CREATE OR REPLACE FUNCTION APP.ADMIN_PUBLISH_BUSINESS (P_BUSINESS_ID UUID, P_ACTOR UUID) RETURNS VOID LANGUAGE PLPGSQL AS $$
 BEGIN
  UPDATE app.business SET status='published',updated_by_user_id=p_actor
- WHERE id=p_business_id AND deleted_at IS NULL;
+ WHERE id=p_business_id AND status <> 'archived';
  IF NOT FOUND THEN RAISE EXCEPTION 'Negocio no encontrado'; END IF;
 END $$;
 
@@ -1927,7 +1969,7 @@ BEGIN
  IF NOT EXISTS(SELECT 1 FROM catalog.review_moderation_status WHERE code=p_status AND active) THEN RAISE EXCEPTION 'Estado invalido'; END IF;
  UPDATE app.review SET moderation_status=p_status,moderation_reason=p_reason,
  moderated_by_user_id=p_actor,moderated_at=now()
- WHERE id=p_review_id AND deleted_at IS NULL;
+ WHERE id=p_review_id AND moderation_status <> 'deleted';
  IF NOT FOUND THEN RAISE EXCEPTION 'Resena no encontrada'; END IF;
 END $$;
 
@@ -1939,9 +1981,9 @@ CREATE OR REPLACE FUNCTION APP.SET_PRIMARY_PHOTO (
 ) RETURNS VOID LANGUAGE PLPGSQL AS $$
 DECLARE bid uuid;
 BEGIN
- SELECT business_id INTO STRICT bid FROM app.branch WHERE id=p_branch_id AND deleted_at IS NULL;
+ SELECT business_id INTO STRICT bid FROM app.branch WHERE id=p_branch_id AND status IN ('active','temporarily_closed');
  IF NOT coalesce(p_is_admin,false) AND NOT app.is_business_owner(p_actor,bid) THEN RAISE EXCEPTION 'Permiso denegado'; END IF;
- IF NOT EXISTS(SELECT 1 FROM app.branch_photo WHERE id=p_photo_id AND branch_id=p_branch_id AND deleted_at IS NULL) THEN
+ IF NOT EXISTS(SELECT 1 FROM app.branch_photo WHERE id=p_photo_id AND branch_id=p_branch_id AND active) THEN
   RAISE EXCEPTION 'Foto inexistente'; END IF;
  UPDATE app.branch_photo SET is_primary=true WHERE id=p_photo_id;
 END $$;
@@ -1959,9 +2001,9 @@ SELECT
 			APP.BRANCH S
 		WHERE
 			S.BUSINESS_ID = B.ID
-			AND S.DELETED_AT IS NULL
+			AND S.status IN ('active','temporarily_closed')
 	) AS ACTIVE_BRANCHES,
-	(SELECT count(*) FROM app.business_owner o WHERE o.business_id=b.id AND o.deleted_at IS NULL) AS OWNERS,
+	(SELECT count(*) FROM app.business_owner o WHERE o.business_id=b.id AND o.active) AS OWNERS,
 	(
 		SELECT
 			COUNT(*)
@@ -1970,7 +2012,7 @@ SELECT
 			JOIN APP.BRANCH S ON S.ID = R.BRANCH_ID
 		WHERE
 			S.BUSINESS_ID = B.ID
-			AND R.DELETED_AT IS NULL
+			AND R.moderation_status <> 'deleted'
 	) AS REVIEWS,
 	(
 		SELECT
@@ -1978,7 +2020,7 @@ SELECT
 		FROM
 			APP.AD_PLACEMENT A
 		WHERE
-			A.DELETED_AT IS NULL
+			A.ACTIVE
 			AND (
 				A.BUSINESS_ID = B.ID
 				OR A.BRANCH_ID IN (
@@ -1995,11 +2037,11 @@ FROM
 	APP.BUSINESS B;
 
 -- Prohibir borrado fisico por SQL ordinario para preservar la trazabilidad.
--- Unica excepcion prevista: app.event, archivado atomico mediante DELETE RETURNING.
-CREATE OR REPLACE FUNCTION APP.REJECT_PHYSICAL_DELETE () RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
-BEGIN RAISE EXCEPTION 'Eliminacion fisica prohibida en %.%; utilice baja logica',TG_TABLE_SCHEMA,TG_TABLE_NAME;
-END $$;
-
+-- Excepciones: app.event (archivado atomico) y fotos (hash en audit_log, bytes en photo_blob).
+-- Revision del DDL: no hay FK entrantes ni vistas que referencien una foto concreta.
+-- add_photo/add_business_photo insertan; set_primary_photo comprueba existencia y ACTIVE.
+-- Un ID borrado deja de ser seleccionable; ninguna funcion exige conservar la fila.
+-- En instalaciones extendidas revisar ademas las dependencias propias antes de aplicar.
 CREATE TRIGGER BUSINESS_OWNER_NO_DELETE
 BEFORE DELETE ON APP.BUSINESS_OWNER FOR EACH ROW EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
 
@@ -2009,10 +2051,6 @@ EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE ();
 
 CREATE TRIGGER BRANCH_NO_DELETE
 BEFORE DELETE ON APP.BRANCH FOR EACH ROW
-EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE ();
-
-CREATE TRIGGER PHOTO_NO_DELETE
-BEFORE DELETE ON APP.BRANCH_PHOTO FOR EACH ROW
 EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE ();
 
 CREATE TRIGGER REVIEW_NO_DELETE
@@ -2112,9 +2150,6 @@ CREATE TRIGGER SUBSCRIPTION_NO_DELETE
 BEFORE DELETE ON APP.BUSINESS_SUBSCRIPTION FOR EACH ROW EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
 CREATE TRIGGER SUBSCRIPTION_PAYMENT_NO_DELETE
 BEFORE DELETE ON APP.SUBSCRIPTION_PAYMENT FOR EACH ROW EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
-CREATE TRIGGER BUSINESS_PHOTO_NO_DELETE
-BEFORE DELETE ON APP.BUSINESS_PHOTO FOR EACH ROW EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
-
 -- Los catalogos tampoco pueden vaciarse mediante TRUNCATE.
 CREATE TRIGGER HOLIDAY_NO_TRUNCATE
 BEFORE TRUNCATE ON CATALOG.HOLIDAY FOR EACH STATEMENT EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
@@ -2155,14 +2190,6 @@ CREATE TRIGGER REVIEW_MODERATION_STATUS_NO_DELETE
 BEFORE DELETE ON CATALOG.REVIEW_MODERATION_STATUS FOR EACH ROW EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
 CREATE TRIGGER REVIEW_MODERATION_STATUS_NO_TRUNCATE
 BEFORE TRUNCATE ON CATALOG.REVIEW_MODERATION_STATUS FOR EACH STATEMENT EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
-CREATE TRIGGER AD_PAYMENT_STATUS_NO_DELETE
-BEFORE DELETE ON CATALOG.AD_PAYMENT_STATUS FOR EACH ROW EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
-CREATE TRIGGER AD_PAYMENT_STATUS_NO_TRUNCATE
-BEFORE TRUNCATE ON CATALOG.AD_PAYMENT_STATUS FOR EACH STATEMENT EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
-CREATE TRIGGER AD_STATUS_NO_DELETE
-BEFORE DELETE ON CATALOG.AD_STATUS FOR EACH ROW EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
-CREATE TRIGGER AD_STATUS_NO_TRUNCATE
-BEFORE TRUNCATE ON CATALOG.AD_STATUS FOR EACH STATEMENT EXECUTE FUNCTION APP.REJECT_PHYSICAL_DELETE();
 
 -- Datos de configuracion indispensables.
 INSERT INTO
@@ -2214,14 +2241,6 @@ VALUES
 		'7',
 		1,
 		365
-	),
-	(
-		'ad.require_paid',
-		'Publicidad requiere pago',
-		'boolean',
-		'true',
-		NULL,
-		NULL
 	);
 
 INSERT INTO
