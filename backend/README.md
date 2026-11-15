@@ -150,7 +150,7 @@ La política acordada para continuar es SQL incremental numerado en `db/migratio
 4. Añadir pruebas de integración con PostgreSQL/PostGIS real y los criterios de aceptación del contrato. No hay proyectos de pruebas automatizadas versionados para este backend; esta actualización no ejecuta compilación ni pruebas de aplicación.
 5. Incorporar las cuatro operaciones P2 de registro/asociación de propietarios una vez estable el MVP, reutilizando las rutas de gestión con autorización por negocio.
 
-Los modelos de reseñas, favoritos, publicidad, importaciones y métricas reflejan el esquema existente; no implican funcionalidades comprometidas. Las clases vacías de `BackgroundJobs` permanecen fuera de P0/P1/P2: no agregar planificadores para completarlas sin una ampliación explícita del alcance.
+Los modelos de reseñas, favoritos, publicidad y métricas reflejan el esquema existente; no implican funcionalidades comprometidas. Las clases vacías de `BackgroundJobs` permanecen fuera de P0/P1/P2: no agregar planificadores para completarlas sin una ampliación explícita del alcance.
 
 ## Integración con Nuxt
 
