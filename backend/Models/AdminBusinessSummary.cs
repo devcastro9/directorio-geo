@@ -15,12 +15,8 @@ public partial class AdminBusinessSummary
     [StringLength(200)]
     public string? TradeName { get; set; }
 
-    [Column("publication_status")]
-    [StringLength(20)]
-    public string? PublicationStatus { get; set; }
-
     [Column("status")]
-    [StringLength(30)]
+    [StringLength(20)]
     public string? Status { get; set; }
 
     [Column("deleted_at")]

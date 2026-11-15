@@ -31,8 +31,14 @@ public partial class PaymentMethod
     [Column("active")]
     public bool Active { get; set; }
 
-    [Column("deleted_at")]
-    public DateTime? DeletedAt { get; set; }
+    [Column("created_by_user_id")]
+    public Guid? CreatedByUserId { get; set; }
+
+    [Column("updated_by_user_id")]
+    public Guid? UpdatedByUserId { get; set; }
+
+    [Column("deleted_by_user_id")]
+    public Guid? DeletedByUserId { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }
@@ -40,6 +46,12 @@ public partial class PaymentMethod
     [Column("updated_at")]
     public DateTime UpdatedAt { get; set; }
 
+    [Column("deleted_at")]
+    public DateTime? DeletedAt { get; set; }
+
     [InverseProperty("Method")]
     public virtual ICollection<BranchPayment> BranchPayments { get; set; } = new List<BranchPayment>();
+
+    [InverseProperty("PaymentMethod")]
+    public virtual ICollection<SubscriptionPayment> SubscriptionPayments { get; set; } = new List<SubscriptionPayment>();
 }

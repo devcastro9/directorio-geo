@@ -36,15 +36,8 @@ public partial class Business
     public string? Description { get; set; }
 
     [Column("status")]
-    [StringLength(30)]
-    public string Status { get; set; } = null!;
-
-    [Column("publication_status")]
     [StringLength(20)]
-    public string PublicationStatus { get; set; } = null!;
-
-    [Column("price_level")]
-    public short? PriceLevel { get; set; }
+    public string Status { get; set; } = null!;
 
     [Column("source")]
     [StringLength(30)]
@@ -60,9 +53,6 @@ public partial class Business
     [Column("updated_by_user_id")]
     public Guid? UpdatedByUserId { get; set; }
 
-    [Column("deleted_at")]
-    public DateTime? DeletedAt { get; set; }
-
     [Column("deleted_by_user_id")]
     public Guid? DeletedByUserId { get; set; }
 
@@ -71,6 +61,9 @@ public partial class Business
 
     [Column("updated_at")]
     public DateTime UpdatedAt { get; set; }
+
+    [Column("deleted_at")]
+    public DateTime? DeletedAt { get; set; }
 
     [InverseProperty("Business")]
     public virtual ICollection<AdPlacement> AdPlacements { get; set; } = new List<AdPlacement>();
@@ -81,6 +74,13 @@ public partial class Business
     [InverseProperty("Business")]
     public virtual ICollection<BusinessOwner> BusinessOwners { get; set; } = new List<BusinessOwner>();
 
-    [InverseProperty("MatchedBusiness")]
-    public virtual ICollection<ImportRow> ImportRows { get; set; } = new List<ImportRow>();
+    [InverseProperty("Business")]
+    public virtual ICollection<BusinessPhoto> BusinessPhotos { get; set; } = new List<BusinessPhoto>();
+
+    [InverseProperty("Business")]
+    public virtual ICollection<BusinessSubscription> BusinessSubscriptions { get; set; } = new List<BusinessSubscription>();
+
+    [ForeignKey("Status")]
+    [InverseProperty("Businesses")]
+    public virtual BusinessStatus StatusNavigation { get; set; } = null!;
 }

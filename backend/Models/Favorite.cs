@@ -9,6 +9,9 @@ namespace backend.Models;
 [Table("favorite", Schema = "app")]
 public partial class Favorite
 {
+    [Column("active")]
+    public bool Active { get; set; }
+
     [Key]
     [Column("user_id")]
     public Guid UserId { get; set; }
@@ -17,11 +20,11 @@ public partial class Favorite
     [Column("branch_id")]
     public Guid BranchId { get; set; }
 
+    [Column("created_by_user_id")]
+    public Guid? CreatedByUserId { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }
-
-    [Column("deleted_at")]
-    public DateTime? DeletedAt { get; set; }
 
     [ForeignKey("BranchId")]
     [InverseProperty("Favorites")]

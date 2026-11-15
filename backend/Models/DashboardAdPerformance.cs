@@ -1,6 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using System;
-using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace backend.Models;
@@ -16,14 +15,6 @@ public partial class DashboardAdPerformance
 
     [Column("branch_id")]
     public Guid? BranchId { get; set; }
-
-    [Column("slot")]
-    [StringLength(30)]
-    public string? Slot { get; set; }
-
-    [Column("amount_bob")]
-    [Precision(14, 2)]
-    public decimal? AmountBob { get; set; }
 
     [Column("starts_at")]
     public DateTime? StartsAt { get; set; }

@@ -35,23 +35,11 @@ public partial class PublishedBranch
     [Column("location", TypeName = "geography(Point,4326)")]
     public Point? Location { get; set; }
 
-    [Column("branch_price_level")]
-    public short? BranchPriceLevel { get; set; }
+    [Column("branch_status")]
+    [StringLength(30)]
+    public string? BranchStatus { get; set; }
 
-    [Column("business_price_level")]
-    public short? BusinessPriceLevel { get; set; }
-
-    [Column("min_price_bob")]
-    [Precision(14, 2)]
-    public decimal? MinPriceBob { get; set; }
-
-    [Column("max_price_bob")]
-    [Precision(14, 2)]
-    public decimal? MaxPriceBob { get; set; }
-
-    [Column("emergency")]
-    public bool? Emergency { get; set; }
-
-    [Column("home_service")]
-    public bool? HomeService { get; set; }
+    [Column("business_status")]
+    [StringLength(20)]
+    public string? BusinessStatus { get; set; }
 }

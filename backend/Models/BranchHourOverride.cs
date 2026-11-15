@@ -22,6 +22,12 @@ public partial class BranchHourOverride
     [Column("is_closed")]
     public bool IsClosed { get; set; }
 
+    [Column("is_24_hours")]
+    public bool Is24Hours { get; set; }
+
+    [Column("active")]
+    public bool Active { get; set; }
+
     [Column("opens_at")]
     public TimeOnly? OpensAt { get; set; }
 
@@ -30,6 +36,24 @@ public partial class BranchHourOverride
 
     [Column("reason")]
     public string? Reason { get; set; }
+
+    [Column("created_by_user_id")]
+    public Guid? CreatedByUserId { get; set; }
+
+    [Column("updated_by_user_id")]
+    public Guid? UpdatedByUserId { get; set; }
+
+    [Column("deleted_by_user_id")]
+    public Guid? DeletedByUserId { get; set; }
+
+    [Column("created_at")]
+    public DateTime CreatedAt { get; set; }
+
+    [Column("updated_at")]
+    public DateTime UpdatedAt { get; set; }
+
+    [Column("deleted_at")]
+    public DateTime? DeletedAt { get; set; }
 
     [ForeignKey("BranchId")]
     [InverseProperty("BranchHourOverrides")]

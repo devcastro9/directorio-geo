@@ -7,6 +7,7 @@ namespace backend.Models;
 
 [Keyless]
 [Table("daily_metric", Schema = "app")]
+[Index("BranchId", "MetricDate", Name = "daily_metric_branch_idx")]
 [Index("MetricDate", "EventType", "BusinessId", "BranchId", Name = "daily_metric_metric_date_event_type_business_id_branch_id_key", IsUnique = true)]
 public partial class DailyMetric
 {

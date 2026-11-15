@@ -56,14 +56,23 @@ public partial class Territory
     [Column("active")]
     public bool Active { get; set; }
 
-    [Column("deleted_at")]
-    public DateTime? DeletedAt { get; set; }
+    [Column("created_by_user_id")]
+    public Guid? CreatedByUserId { get; set; }
+
+    [Column("updated_by_user_id")]
+    public Guid? UpdatedByUserId { get; set; }
+
+    [Column("deleted_by_user_id")]
+    public Guid? DeletedByUserId { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }
 
     [Column("updated_at")]
     public DateTime UpdatedAt { get; set; }
+
+    [Column("deleted_at")]
+    public DateTime? DeletedAt { get; set; }
 
     [InverseProperty("Territory")]
     public virtual ICollection<Branch> Branches { get; set; } = new List<Branch>();

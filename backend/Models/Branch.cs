@@ -52,26 +52,6 @@ public partial class Branch
     [Column("is_primary")]
     public bool IsPrimary { get; set; }
 
-    [Column("price_level")]
-    public short? PriceLevel { get; set; }
-
-    [Column("min_price_bob")]
-    [Precision(14, 2)]
-    public decimal? MinPriceBob { get; set; }
-
-    [Column("max_price_bob")]
-    [Precision(14, 2)]
-    public decimal? MaxPriceBob { get; set; }
-
-    [Column("emergency")]
-    public bool Emergency { get; set; }
-
-    [Column("home_service")]
-    public bool HomeService { get; set; }
-
-    [Column("accessibility", TypeName = "jsonb")]
-    public string Accessibility { get; set; } = null!;
-
     [Column("source")]
     [StringLength(30)]
     public string Source { get; set; } = null!;
@@ -80,8 +60,11 @@ public partial class Branch
     [StringLength(200)]
     public string? SourceKey { get; set; }
 
-    [Column("deleted_at")]
-    public DateTime? DeletedAt { get; set; }
+    [Column("created_by_user_id")]
+    public Guid? CreatedByUserId { get; set; }
+
+    [Column("updated_by_user_id")]
+    public Guid? UpdatedByUserId { get; set; }
 
     [Column("deleted_by_user_id")]
     public Guid? DeletedByUserId { get; set; }
@@ -91,6 +74,9 @@ public partial class Branch
 
     [Column("updated_at")]
     public DateTime UpdatedAt { get; set; }
+
+    [Column("deleted_at")]
+    public DateTime? DeletedAt { get; set; }
 
     [InverseProperty("Branch")]
     public virtual ICollection<AdPlacement> AdPlacements { get; set; } = new List<AdPlacement>();
@@ -114,7 +100,7 @@ public partial class Branch
     public virtual ICollection<BranchPhoto> BranchPhotos { get; set; } = new List<BranchPhoto>();
 
     [InverseProperty("Branch")]
-    public virtual ICollection<BranchService> BranchServices { get; set; } = new List<BranchService>();
+    public virtual ICollection<BranchServiceProduct> BranchServiceProducts { get; set; } = new List<BranchServiceProduct>();
 
     [ForeignKey("BusinessId")]
     [InverseProperty("Branches")]
@@ -123,14 +109,15 @@ public partial class Branch
     [InverseProperty("Branch")]
     public virtual ICollection<Favorite> Favorites { get; set; } = new List<Favorite>();
 
-    [InverseProperty("MatchedBranch")]
-    public virtual ICollection<ImportRow> ImportRows { get; set; } = new List<ImportRow>();
-
     [InverseProperty("Branch")]
     public virtual ICollection<OpeningHour> OpeningHours { get; set; } = new List<OpeningHour>();
 
     [InverseProperty("Branch")]
     public virtual ICollection<Review> Reviews { get; set; } = new List<Review>();
+
+    [ForeignKey("Status")]
+    [InverseProperty("Branches")]
+    public virtual BranchStatus StatusNavigation { get; set; } = null!;
 
     [ForeignKey("TerritoryId")]
     [InverseProperty("Branches")]

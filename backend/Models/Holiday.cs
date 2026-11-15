@@ -5,7 +5,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace backend.Models;
 
-[Table("holiday", Schema = "app")]
+[Table("holiday", Schema = "catalog")]
 [Index("HolidayDate", "TerritoryId", "Name", Name = "holiday_holiday_date_territory_id_name_key", IsUnique = true)]
 public partial class Holiday
 {
@@ -28,6 +28,24 @@ public partial class Holiday
 
     [Column("active")]
     public bool Active { get; set; }
+
+    [Column("created_by_user_id")]
+    public Guid? CreatedByUserId { get; set; }
+
+    [Column("updated_by_user_id")]
+    public Guid? UpdatedByUserId { get; set; }
+
+    [Column("deleted_by_user_id")]
+    public Guid? DeletedByUserId { get; set; }
+
+    [Column("created_at")]
+    public DateTime CreatedAt { get; set; }
+
+    [Column("updated_at")]
+    public DateTime UpdatedAt { get; set; }
+
+    [Column("deleted_at")]
+    public DateTime? DeletedAt { get; set; }
 
     [ForeignKey("TerritoryId")]
     [InverseProperty("Holidays")]

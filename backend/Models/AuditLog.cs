@@ -1,4 +1,3 @@
-﻿using Microsoft.EntityFrameworkCore;
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -6,7 +5,6 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace backend.Models;
 
 [Table("audit_log", Schema = "app")]
-[Index("EntityTable", "EntityKey", "ChangedAt", Name = "audit_entity_idx", IsDescending = new[] { false, false, true })]
 public partial class AuditLog
 {
     [Key]
@@ -21,19 +19,15 @@ public partial class AuditLog
     [StringLength(63)]
     public string EntityTable { get; set; } = null!;
 
-    [Column("entity_key")]
-    [StringLength(200)]
-    public string EntityKey { get; set; } = null!;
-
     [Column("operation")]
     [MaxLength(1)]
     public char Operation { get; set; }
 
-    [Column("actor_user_id")]
-    public Guid? ActorUserId { get; set; }
+    [Column("created_by_user_id")]
+    public Guid CreatedByUserId { get; set; }
 
-    [Column("changed_at")]
-    public DateTime ChangedAt { get; set; }
+    [Column("created_at")]
+    public DateTime CreatedAt { get; set; }
 
     [Column("transaction_id", TypeName = "xid8")]
     public ulong TransactionId { get; set; }
