@@ -1,98 +1,95 @@
 # Directorio Geo de negocios de Bolivia
 
-Documentación rectificada: versión 2.0, 2026-11-09.
+> **Documentación oficial:** Versión 1.0, 2026-11-16.
 
-El producto previsto permitirá encontrar sucursales, consultar horarios, contactos, precios orientativos y fotos, y abrir indicaciones para llegar. El visitante no necesita cuenta ni conocimientos geográficos.
+El producto permite encontrar comercios y sucursales en Bolivia, consultar horarios, canales de contacto, rangos de precios orientativos y fotos, y abrir indicaciones de navegación en mapas interactivos. El visitante no necesita registro ni conocimientos geográficos («Cerca de mí», «Buscar en esta zona», «Abierto ahora»).
 
-## Documentos y alcance
+---
 
-- [Funcionalidades](Funcionalidades_Directorio_Geo_SQL_v1_3.md): alcance, valor para el usuario, entregas y criterios de aceptación.
-- [Contrato API](REQUERIMIENTOS_API.md): fuente normativa de rutas, parámetros, DTO JSON/GeoJSON, permisos, reglas y cambios SQL necesarios.
-- [README del backend](backend/README.md): estructura ASP.NET Core, configuración, ejecución y bloqueos actuales.
-- [README del frontend](frontend/README.md): estructura Nuxt, comandos e integración pendiente con la API.
-- Este README: entorno compartido, base de datos, despliegue y orden de implementación.
+## 1. Documentos y Alcance
 
-La documentación comparte una sola planificación: **P0**, base técnica; **P1**, MVP público administrable; **P2**, autogestión por propietarios. P0/P1 suman **27 operaciones HTTP**; P2 añade **4**, para **31** en total. Cada combinación método+ruta cuenta una vez; OpenAPI/Scalar de desarrollo no son operaciones del producto. JSON y GeoJSON son dos representaciones de una misma búsqueda.
+- [Reglas de Agentes de IA](AGENTS.md): Guía autoritativa, arquitectura monorepo, directrices técnicas bilingües y restricciones para agentes de codificación.
+- [Funcionalidades](Funcionalidades_Directorio_Geo_SQL_v1_3.md): Alcance de producto, valor para el usuario, entregas (P0, P1, P2) y criterios de aceptación.
+- [Contrato API](REQUERIMIENTOS_API.md): Fuente normativa de rutas (`/api/v1/*`), parámetros, DTOs JSON/GeoJSON, permisos y reglas de validación.
+- [README del backend](backend/README.md): Estructura ASP.NET Core 10, configuración, estado de endpoints implementados y comandos de ejecución.
+- [README del frontend](frontend/README.md): Estructura Next.js 16, React 19, Tailwind CSS 4, visor de mapas Mapbox y scripts de desarrollo.
+- **Este README:** Entorno compartido, base de datos PostgreSQL/PostGIS, orquestación Docker y orden de implementación.
 
-Quedan fuera del alcance comprometido favoritos, reseñas, publicidad, métricas de visitantes, importaciones masivas, autocompletado, análisis GIS y motor de rutas. Las tablas existentes de las demas funcionalidades se conservan; no obligan a desarrollar interfaces o endpoints. No agregar esas funcionalidades por el solo hecho de estar en la base.
+La planificación se divide en:
+- **P0:** Base técnica, integridad de base de datos, seguridad Identity y operación.
+- **P1:** MVP público administrable (búsqueda de sucursales, fichas de información, categorías y mapa).
+- **P2:** Autogestión por propietarios asociados (`Owner`). No bloquea el MVP.
 
-## Estado real y stack inamovible
+Quedan fuera del alcance del MVP: favoritos, reseñas de usuarios, publicidad paga, analítica de visitantes, importaciones masivas, autocompletado predictivo y motor propio de rutas. Las tablas correspondientes se conservan en la base de datos sin obligar a implementar endpoints ni interfaces prematuras.
 
-La única operación implementada en los controladores es `GET /api/v1/Prueba`, que devuelve entidades de `catalog.parameter_definition`. Nuxt muestra `NuxtWelcome`. Identity y paquetes JWT están presentes; `Program.cs` aún no configura autenticación ni autorización y permite cualquier origen CORS. El servicio de autenticación es incompleto. Las rutas de la especificación son trabajo pendiente, no una descripción de una API terminada.
+---
+
+## 2. Estado Real y Stack Tecnológico
 
 | Área | Disponible en el código | Pendiente |
 | --- | --- | --- |
-| Backend | Consulta de prueba, contexto EF y modelos SQL/Identity | Completar autenticación y DTO; implementar las operaciones del contrato |
-| Frontend | Bienvenida Nuxt, scripts de desarrollo y build, imagen Nitro | Buscador, mapa, fichas, formularios y consumo de API |
-| Base | Línea base SQL y pruebas transaccionales | Incrementos, datos territoriales comprobados y correcciones de integridad |
-| Operación | Compose, healthcheck DB y frontend, pgAdmin opcional | Salud de API, proxy HTTPS y entrega automatizada |
+| **Backend** | Consulta de prueba (`/api/v1/Prueba`), API de Categorías (`/api/v1/categories`), `ApiExceptionHandler` (RFC 7807), contexto EF Core y modelos SQL/Identity. Compilación limpia (`dotnet build` exitoso). | Completar servicio JWT y endpoints de autenticación, sucursales y negocios. |
+| **Frontend** | Base Next.js 16 (App Router), React 19, Tailwind CSS 4, Turbopack, salida `standalone`, `robots.txt` y Dockerfile multi-stage. Build verificado. | Buscador, visor interactivo Mapbox, fichas de detalle y consumo de API. |
+| **Base de datos** | PostgreSQL 18 + PostGIS 3.6, esquemas `app`, `catalog`, `geo` y `public`, línea base SQL y pruebas transaccionales. | Incrementos de datos territoriales comprobados. |
+| **Operación** | Docker Compose multi-contenedor, healthchecks, perfiles de desarrollo y pgAdmin opcional. | Proxy inverso HTTPS para producción. |
 
-El trabajo de autenticación contiene bloqueos visibles por inspección: `AuthService` no implementa `IAuthService` y faltan los tipos `UserResponse` y `AuthSession`. El [README del backend](backend/README.md) detalla también la diferencia entre los DTO provisionales y el contrato. Los comandos de arranque del backend y de construcción del conjunto requieren resolver esos bloqueos. El frontend puede desarrollarse por separado porque todavía no depende de la API.
+### Stack inamovible
 
-| Componente | Base del repositorio que se conserva |
+| Componente | Tecnología y versión |
 | --- | --- |
-| Backend | ASP.NET Core 10, C#, `net10.0`, EF Core 10.0.14 |
-| Datos | Npgsql 10.0.3, NetTopologySuite, Database First |
-| Autenticación | ASP.NET Core Identity con Guid y JWT Bearer |
-| Frontend | Nuxt 4, Vue 3, TypeScript; pnpm 12.16.1 y lockfile existente |
-| Base | PostgreSQL 18, PostGIS 3.6, esquemas app/catalog/geo/public |
-| Fotos | BYTEA en PostgreSQL, entrega binaria mediante API |
-| Ejecución | Docker Compose, Node 22 Alpine y Nitro node-server |
+| **Backend** | ASP.NET Core 10, C# 13, `net10.0`, EF Core 10.0.14 |
+| **Datos y Espacial** | PostgreSQL 18, PostGIS 3.6, Npgsql 10.0.3, NetTopologySuite (SRID 4326), Database-First |
+| **Autenticación** | ASP.NET Core Identity con claves Guid y tokens JWT Bearer |
+| **Frontend** | Next.js 16 (App Router), React 19, TypeScript 5, Tailwind CSS 4, pnpm 12.16.1 |
+| **Mapas** | Mapbox GL JS (`react-map-gl`) con token público |
+| **Fotografías** | Almacenamiento en columnas `BYTEA` en PostgreSQL; entrega binaria mediante API |
+| **Ejecución** | Docker Compose, Alpine Linux, salida Next.js standalone |
 
-`frontend/package.json` requiere Node `^22.22.3 || ^24.15.0 || >=26.0.0`. Las versiones efectivas de frontend las fija `pnpm-lock.yaml`. No sustituir frameworks, base, almacenamiento de fotos ni mecanismo de autenticación. pgRouting, osm2pgrouting y osmium-tool están instalados en `db/Dockerfile`; se conservan como parte de la imagen actual, sin desarrollar un motor de rutas. pgAdmin es opcional.
+---
 
-## Estructura actual y arquitectura acordada
-
-Un monolito modular ASP.NET Core, un frontend Nuxt y una base PostgreSQL. Un único `AppDbContext` con Identity; SQL versionado como fuente de verdad. La estructura existente relevante es:
+## 3. Estructura del Monorepo
 
 ```text
 directorio-geo/
-  README.md
-  REQUERIMIENTOS_API.md
-  Funcionalidades_Directorio_Geo_SQL_v1_3.md
-  docker-compose.yml
-  docker-compose.dev.yml
-  .env.example
-  backend/
-    README.md
-    backend.csproj
-    backend.slnx
-    Program.cs
-    Controllers/                 # Prueba y controladores sin acciones
-    DTOs/                        # Contratos provisionales
-    Services/                    # Autenticación incompleta
-    Data/AppDbContext.cs
-    Data/Migrations/IdentityMigration.sql
-    Identity/
-    Models/
-    Middleware/                  # Clase de errores vacía
-    BackgroundJobs/              # Clases vacías, fuera del alcance comprometido
-    Dockerfile
-  frontend/
-    README.md
-    package.json
-    pnpm-lock.yaml
-    nuxt.config.ts
-    app/app.vue                  # NuxtWelcome y NuxtRouteAnnouncer
-    public/
-    Dockerfile
-  db/
-    Dockerfile
-    init/01_schema.sql
-    init/02_test.sql
+├── AGENTS.md                                # Directrices autoritativas para agentes de IA
+├── README.md                                # Este documento
+├── REQUERIMIENTOS_API.md                    # Contrato normativo HTTP
+├── Funcionalidades_Directorio_Geo_SQL_v1_3.md # Especificación funcional
+├── docker-compose.yml                       # Orquestación de producción
+├── docker-compose.dev.yml                   # Modificaciones para desarrollo
+├── .env.example                             # Plantilla de variables de entorno
+├── backend/
+│   ├── README.md                            # Documentación del backend
+│   ├── backend.csproj / backend.slnx        # Proyecto y solución .NET 10
+│   ├── Program.cs                           # Pipeline y registro de servicios
+│   ├── Controllers/                         # Categories (/api/v1/categories), Prueba, Auth
+│   ├── DTOs/                                # DTOs de categorías, ApiResponse, PagedResult
+│   ├── Services/                            # ICategoryService, CategoryService
+│   ├── Data/                                # AppDbContext con soporte spatial
+│   ├── Identity/                            # ApplicationUser y ApplicationRole
+│   ├── Models/                              # Modelos de base de datos
+│   ├── Middleware/                          # ApiExceptionHandler (RFC 7807)
+│   └── Dockerfile                           # Contenedor .NET 10 runtime
+├── frontend/
+│   ├── README.md                            # Documentación del frontend
+│   ├── Dockerfile                           # Contenedor multi-stage Next.js standalone
+│   ├── .dockerignore
+│   ├── AGENTS.md                            # Reglas de Next.js (manejado por next dev)
+│   ├── package.json / pnpm-lock.yaml
+│   ├── next.config.ts                       # Configuración standalone y Turbopack
+│   ├── public/                              # Archivos públicos y robots.txt
+│   └── src/app/                             # Next.js App Router (React 19)
+└── db/
+    ├── Dockerfile                           # PostgreSQL 18 + PostGIS 3.6
+    ├── AUDIT_DECISIONS.md                   # Registro de decisiones del esquema
+    └── init/                                # 01_schema.sql y 02_test.sql
 ```
 
-Las carpetas de pruebas, `db/migrations/`, los módulos completos de API y las páginas/composables/componentes del frontend son trabajo futuro. El contrato API define la organización y el comportamiento a implementar; no hace falta crear carpetas vacías. Los controladores resuelven HTTP, los servicios aplican permisos/transacciones y las consultas proyectan DTO usando PostGIS. No se necesita un Repository por tabla ni servicios distribuidos.
+---
 
-El contexto Docker del backend es `backend/`. Si se incorpora el proyecto de pruebas dentro de esa carpeta, excluir sus fuentes del proyecto web y agregarlo explícitamente a la solución. La interfaz traducirá los filtros técnicos a «Cerca de mí», «Buscar en esta zona» y «Abierto ahora».
+## 4. Instalación y Ejecución con Docker
 
-Producción objetivo: un origen HTTPS con `/api/v1/*` dirigido al backend y el resto a Nuxt mediante el proxy de infraestructura. Nuxt deberá declarar `runtimeConfig.public.apiBase=/api/v1` y una base privada configurable para consultas SSR, accesible desde su red. Compose aún no incorpora ese proxy ni runtimeConfig. En desarrollo se permiten explícitamente los orígenes locales configurados, con credenciales; no combinar credenciales con `AllowAnyOrigin`.
-
-Mapa objetivo: componente Vue exclusivo de navegador con Leaflet, sin sustituir Nuxt. URL de teselas y atribución son configuración pública; no se incluye un servicio de teselas propio. El entorno de entrega debe proporcionar un proveedor autorizado con su atribución antes de habilitar el mapa. La lista sigue funcionando si las teselas fallan.
-
-## Instalación con Docker
-
-Todos los comandos de este README parten de la raíz del repositorio. Requisitos: Docker con contenedores Linux y Compose v2. Desde la raíz, copiar la plantilla solo si no existe `.env`:
+Requisitos: Docker Engine con contenedores Linux y Compose v2. Desde la raíz del repositorio, preparar el archivo `.env`:
 
 ```powershell
 if (-not (Test-Path -LiteralPath .env)) {
@@ -100,120 +97,93 @@ if (-not (Test-Path -LiteralPath .env)) {
 }
 ```
 
-Completar los valores privados localmente. No sobrescribir un `.env` existente ni versionarlo.
+Configurar las contraseñas y puertos en `.env`.
 
-| Variable actual | Uso |
-| --- | --- |
-| POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD | Obligatorias; inicialización DB y conexión actual de API |
-| BACKEND_PORT / FRONTEND_PORT | 8000 / 3000 por defecto |
-| POSTGRES_PORT | 5432; publicado solo con override dev |
-| PGADMIN_DEFAULT_EMAIL / PGADMIN_DEFAULT_PASSWORD | Usuario y contraseña para perfil tools; contraseña obligatoria al usarlo |
-| PGADMIN_PORT | 5050 por defecto |
+### Variables Principales en `.env`
 
-Compose construye `ConnectionStrings__DefaultConnection` con host `db`. La contraseña se entrecomilla para Npgsql: si contiene comillas dobles, duplicarlas en la cadena o proporcionar la cadena completa desde configuración segura. Para `$` en `.env`, utilizar comillas simples y validar sin imprimir secretos.
+| Variable | Descripción | Valor por defecto |
+| --- | --- | --- |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | Credenciales de base de datos | Obligatorias |
+| `BACKEND_PORT` | Puerto público del backend en host | `8000` |
+| `FRONTEND_PORT` | Puerto público del frontend en host | `3000` |
+| `POSTGRES_PORT` | Puerto publicado de PostgreSQL (solo con override dev) | `5432` |
+| `PGADMIN_PORT` | Puerto de pgAdmin4 (con perfil tools) | `5050` |
+
+### Arranque del Entorno Completo
 
 ```powershell
+# Validar configuración
 docker compose config --quiet
+
+# Construir imágenes de backend y frontend
 docker compose build
+
+# Levantar servicios en segundo plano
 docker compose up -d --wait
 ```
 
-Frontend: http://localhost:3000. Prueba actual: http://localhost:8000/api/v1/Prueba. El archivo base usa Production y puertos loopback. DB no expone puerto; la red `database` es interna. `pg_isready` no comprueba esquema ni credenciales de la API. No existe aún healthcheck del backend; el frontend comprueba `/` con Node.
+- **Frontend:** http://localhost:3000
+- **Backend API (Categorías):** http://localhost:8000/api/v1/categories
+- **Backend API (Prueba):** http://localhost:8000/api/v1/Prueba
 
-Para desarrollo:
+### Entorno de Desarrollo (con exposición de PostgreSQL y Scalar)
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build --wait
 ```
 
-DB accesible en localhost:5432; OpenAPI en http://localhost:8000/openapi/v1.json y Scalar en http://localhost:8000/scalar/v1. El override no proporciona hot reload. Usar la misma combinación de archivos `-f` para detener o consultar este entorno.
+- **PostgreSQL accesible en:** `localhost:5432`
+- **Documentación OpenAPI:** http://localhost:8000/openapi/v1.json
+- **Scalar UI:** http://localhost:8000/scalar/v1
 
-pgAdmin opcional, una vez definida su contraseña:
+### Herramienta opcional: pgAdmin4
 
 ```powershell
 docker compose --profile tools up -d pgadmin
 ```
+Acceder a http://localhost:5050 e iniciar sesión con las credenciales configuradas en `.env`.
 
-Abrir http://localhost:5050 y registrar host `db`, puerto 5432 y credenciales locales. Desde Windows usar `localhost` con el override dev.
+---
 
-```powershell
-docker compose ps
-docker compose logs --tail 100 backend frontend db
-docker compose stop
-docker compose down
-```
+## 5. Desarrollo Local sin Contenedores para la Aplicación
 
-`down` conserva volúmenes. No eliminar volúmenes para actualizar el esquema. Se mantienen el proyecto `geodirectorio` y el montaje PostgreSQL 18 `/var/lib/postgresql`.
-
-## Desarrollo sin Docker para la aplicación
-
-Mantener PostgreSQL en Docker:
+Para desarrollar con recarga rápida manteniendo la base de datos en Docker:
 
 ```powershell
+# 1. Levantar solo la base de datos exponiendo el puerto 5432
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db --wait
+
+# 2. Configurar la cadena de conexión local en User Secrets y compilar el backend
 dotnet user-secrets set 'ConnectionStrings:DefaultConnection' 'Host=localhost;Port=5432;Database=directorio;Username=directorio;Password=<contraseña-local>' --project backend/backend.csproj
 dotnet restore backend/backend.slnx
+dotnet build backend/backend.slnx
 dotnet run --project backend/backend.csproj --launch-profile http
 ```
+El backend estará disponible en `http://localhost:5089`.
 
-El backend nativo usa http://localhost:5089 y no carga el `.env` de Compose. Sustituir puerto, base y credenciales por los locales. En otra terminal:
+En otra terminal, para el frontend:
 
 ```powershell
-npm install --global pnpm@12.16.1
-pnpm --dir frontend install --frozen-lockfile
-pnpm --dir frontend dev
+cd frontend
+pnpm install
+pnpm dev
 ```
+El frontend estará disponible en `http://localhost:3000` con hot reload de Turbopack.
 
-Las claves `Jwt:Issuer`, `Jwt:Audience`, `Jwt:AccessTokenMinutes=15` y `Jwt:RefreshTokenDays=30` existen en appsettings pero aún no se consumen. La implementación debe añadir `Jwt:SigningKey` mediante secretos (al menos 32 bytes aleatorios), `Security:AllowedOrigins` y las bases API de Nuxt. Las credenciales del primer administrador deberán suministrarse por un procedimiento privado de inicialización con UserManager, todavía pendiente; nunca por registro público ni con contraseña fija. Ninguna clave privada va en `NUXT_PUBLIC_*`.
+---
 
-## Base y migraciones
-
-En un volumen vacío se ejecutan `01_schema.sql` y `02_test.sql`; el segundo termina con ROLLBACK. PostgreSQL 18 es necesario por `uuidv7`. Se crean PostGIS, pg_trgm, unaccent y btree_gist. La línea base ya incluye tablas Identity y su historial. `backend/Data/Migrations/IdentityMigration.sql` también crea tablas de dominio: **no ejecutarlo sobre la línea base**.
-
-La política es una sola: incrementos SQL numerados en `db/migrations/`, revisados y aplicados con `psql -v ON_ERROR_STOP=1` durante mantenimiento, registrados por versión y checksum en una tabla de control a incorporar. Cada incremento se ejecuta una vez, en transacción, con respaldo y prueba de restauración. El arranque de la API no ejecuta `EnsureCreated`, `Migrate` ni scripts DDL. No añadir DbUp/Flyway como requisito.
-
-Para instalaciones nuevas, inicializar con la línea base y después aplicar incrementos. Para existentes, inventariar tablas/historial y aplicar solo pendientes; los archivos de init no se vuelven a ejecutar. Cambiar `.env` no cambia contraseñas de una base inicializada. Ver el contrato API, sección 12, para las correcciones exactas del SQL. Regenerar modelos solo tras aplicar y probar el esquema; conservar Identity y personalizaciones partial.
-
-## Verificación y orden de implementación
-
-1. P0: línea base y SQL incremental; catálogos y límites territoriales con procedencia; rol DB de aplicación; autenticación y transacciones con auditoría; salud y errores.
-2. P1: administración completa de negocios/sucursales/fotos, publicación, búsqueda JSON/GeoJSON y fichas Nuxt. Retirar `/Prueba` al completar las rutas reales.
-3. P2: registro y asociación administrativa de propietarios; reutilizar las rutas de management con autorización por negocio.
-
-Comprobaciones disponibles:
+## 6. Comprobaciones de Integridad
 
 ```powershell
+# Verificar diferencias sin cambios no deseados
 git diff --check
+
+# Compilar backend .NET 10 (0 errores esperados)
 dotnet build backend/backend.slnx --configuration Release
-pnpm --dir frontend install --frozen-lockfile
+
+# Compilar frontend Next.js 16 (0 errores esperados)
 pnpm --dir frontend build
+
+# Validar sintaxis de Docker Compose
 docker compose config --quiet
-Get-Content -Raw -Encoding UTF8 db/init/02_test.sql | docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-```
-
-Actualmente no existen pruebas .NET ni script test frontend. El backend tiene los bloqueos de código indicados en su README. Los comandos anteriores son instrucciones de comprobación, no resultados de ejecución; esta actualización documental no compila ni inicia servicios. La implementación debe incorporar las pruebas de aceptación de los dos documentos normativos y OpenAPI con los DTO concretos, no respuestas ilustrativas sin esquema.
-
-Antes de exposición pública: configurar HTTPS/proxy, cerrar CORS, desactivar logs sensibles, usar un rol DB con permisos mínimos en vez del usuario inicial, preparar backups y comprobar restauración. No hay pipeline CI/CD ni terminación TLS incorporados. pgAdmin permanece en loopback. La salud lista de la futura API no debe depender de datos de negocios ni exponerse como diagnóstico detallado.
-
-Problemas habituales: si falla una variable, completar `.env` y ejecutar `config --quiet`; si falla `/Prueba`, revisar conexión/esquema; si `db` no resuelve desde Windows, usar localhost; si un puerto está ocupado, cambiar el puerto del host; si no aparece OpenAPI, usar Development. Conservar siempre el lockfile de pnpm.
-
-## Ingeniera inversa a la base de datos (Database First)
-Ejecutar en la **Consola del Administrador de paquetes de Visual Studio (NuGet)**, con la solucion `backend/backend.slnx` abierta y la base actualizada. Usa `ConnectionStrings:DefaultConnection`, configurada previamente mediante los secretos de usuario del proyecto para la base local. El entorno Development permite cargar esos secretos.
-
-```powershell
-Scaffold-DbContext 'Host=localhost;Port=5432;Database=cofre;Username=directorio;Password=Admin123*' Npgsql.EntityFrameworkCore.PostgreSQL -Project backend -StartupProject backend -Args '--environment Development' -Context AppDbContext -ContextDir Data -OutputDir Models -ContextNamespace backend.Data -Namespace backend.Models -DataAnnotations -NoOnConfiguring -Tables "catalog.category","catalog.service_product","catalog.feature","catalog.payment_method","catalog.subscription_type","catalog.branch_status","catalog.business_status","catalog.subscription_status","catalog.subscription_payment_status","catalog.review_moderation_status","catalog.parameter_definition","catalog.parameter_value","geo.territory","app.business","app.business_owner","app.business_subscription","app.subscription_payment","app.branch","app.branch_category","app.branch_service_product","app.branch_feature","app.branch_payment","app.branch_contact","app.opening_hour","catalog.holiday","app.branch_hour_override","app.service_product_price","app.branch_photo","app.business_photo","app.review","app.favorite","app.ad_placement","catalog.search_synonym","app.published_branch","app.event","app.event_hist","app.daily_metric","app.monthly_metric","app.dashboard_branch_metrics","app.dashboard_ad_performance","app.admin_business_summary" -Force
-```
-
-La lista incluye las tablas y vistas actuales de `catalog`, `geo` y `app`; omite las tablas Identity de `public`. Se usa solo `-Tables`: agregar `-Schemas` incluiria todos los objetos de esos esquemas, incluso los que no aparecen en la lista. El cambio de codigo de categoria a `medical_office` modifica datos iniciales y no requiere agregar entidades al scaffold.
-
-`-Force` sobrescribe el contexto y los modelos existentes. Antes de compilar, revisar el diff y restaurar en `AppDbContext` la herencia `IdentityDbContext<ApplicationUser, ApplicationRole, Guid>`, el import de `backend.Identity` y la llamada a `base.OnModelCreating(modelBuilder)`. Conservar tambien las personalizaciones existentes y la llamada a `OnModelCreatingPartial`. El proveedor espacial ya esta instalado mediante `Npgsql.EntityFrameworkCore.PostgreSQL.NetTopologySuite`.
-
-Referencia: [ingenieria inversa de EF Core](https://learn.microsoft.com/en-us/ef/core/managing-schemas/scaffolding/).
-
-## Tablas de NET Core Identity
-```
-Add-Migration InitialIdentity -Context AppDbContext -OutputDir Data/Migrations
-Script-Migration -Context AppDbContext -Output Data/Migrations/IdentityMigration.sql
-Remove-Migration
 ```

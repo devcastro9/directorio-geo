@@ -1,6 +1,6 @@
 # FUNCIONALIDADES DEL DIRECTORIO GEO DE NEGOCIOS
 
-Versión 2.0 | Fecha: 2026-11-09
+Versión 1.0 | Fecha: 2026-11-16
 
 ## 1. OBJETIVO Y AUTORIDAD DOCUMENTAL
 
@@ -22,8 +22,8 @@ P1: MVP público con catálogo administrable. P0/P1: 27 operaciones HTTP.
 P2: autogestión por propietarios. Añade 4; total acumulado: 31 operaciones.
 P2 no bloquea la primera publicación del directorio.
 
-No se cuentan como funcionalidades las tablas SQL sin API e interfaz. La ruta
-/Prueba y NuxtWelcome son la base actual, no el producto terminado.
+No se cuentan como funcionalidades las tablas SQL sin API e interfaz. Las rutas
+de diagnóstico y la plantilla inicial de Next.js son la base actual, no el producto terminado.
 
 ## 3. VISITANTE SIN CUENTA [P1]
 

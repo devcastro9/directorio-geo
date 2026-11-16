@@ -13,7 +13,7 @@ namespace backend.Controllers;
 
 /// <summary>Consulta y mantenimiento de categorías del catálogo.</summary>
 [ApiController]
-[Route("api/categories")]
+[Route("api/v1/categories")]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status500InternalServerError, "application/problem+json")]
 public sealed class CategoriesController(ICategoryService service, ILogger<CategoriesController> logger) : ControllerBase

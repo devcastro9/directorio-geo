@@ -1,7 +1,7 @@
 # CONTRATO FUNCIONAL Y HTTP — DIRECTORIO GEO DE NEGOCIOS
 
-Versión 2.0 | Fecha: 2026-11-09 | Base: /api/v1
-Estado: especificación normativa para desarrollar; NO API implementada.
+Versión 1.0 | Fecha: 2026-11-16 | Base: /api/v1
+Estado: especificación normativa para desarrollar; incluye módulo de Categorías implementado.
 
 ## 0. AUTORIDAD, ALCANCE Y STACK
 
@@ -12,9 +12,10 @@ y aceptación; [README.md](README.md) describe instalación y estado actual. Los
 instancias de los tipos definidos, no contratos alternos.
 
 Stack inamovible: ASP.NET Core 10/C#, Identity Guid/JWT Bearer, EF Core 10,
-Npgsql/NetTopologySuite, PostgreSQL 18/PostGIS, Database First; Nuxt 4/Vue 3/
-TypeScript, pnpm y Docker Compose. Fotos BYTEA en PostgreSQL. Sin motor de rutas,
-almacenamiento externo obligatorio, microservicios, colas ni caché distribuida.
+Npgsql/NetTopologySuite, PostgreSQL 18/PostGIS, Database First; Next.js 16/React 19/
+Tailwind CSS 4, TypeScript, pnpm y Docker Compose. Mapas interactivos con Mapbox GL JS.
+Fotos BYTEA en PostgreSQL. Sin motor de rutas, almacenamiento externo obligatorio,
+microservicios, colas ni caché distribuida.
 
 P0 = seguridad, integridad y operación. P1 = catálogo público y administración.
 P0/P1 = MVP: 27 operaciones. P2 = registro y propietarios: 4 adicionales, 31 total.
@@ -35,6 +36,9 @@ Por defecto éxito 200; 201/204 se indican. Entradas/salidas tipadas en §2..11.
 | ID | Método | Ruta relativa | Acceso | Entrada → salida |
 | --- | --- | --- | --- | --- |
 | 01 | `GET` | `/catalogs` | P | ninguna -> Catalogs |
+| 01b | `GET` | `/categories` | P | query ListRequest -> `ApiResponse<PagedResult<CategoryDto>>` |
+| 01c | `GET` | `/categories/{id}` | P | UUID -> `ApiResponse<CategoryDto>` |
+| 01d | `POST` | `/categories` | A | CreateCategoryRequest -> `ApiResponse<CategoryDto>`, 201 |
 | 02 | `GET` | `/territories` | P | query §4 -> `Page<Territory>` |
 | 03 | `GET` | `/branches` | P | query §5 -> `Page<BranchSummary>`/GeoJSON |
 | 04 | `GET` | `/businesses/{slug}` | P | slug -> PublicBusiness |
@@ -224,9 +228,19 @@ Catalogs={categories:Category[],services:CatalogItem[],features:CatalogItem[],
  paymentMethods:CatalogItem[]}.
 01: sin query, solo activos con ancestros activos; sortOrder,name,id.
 Categorías planas; cliente construye árbol. Máximo operativo 500 por colección;
-carga inicial debe cumplirlo, no truncar. Sin CRUD: scripts versionados con actor,
-sin desactivar referencias que invaliden fichas publicadas. Filtros solo por UUID,
+carga inicial debe cumplirlo, no truncar. Filtros solo por UUID,
 no mezclar code e ID en el mismo parámetro.
+
+### 4.1 Módulo Canónico de Categorías (/api/v1/categories)
+
+CategoryDto={id:UUID,code:string,name:string,description:string?,icon:string?,color:string?,parentId:UUID?,sortOrder:int,isActive:bool}.
+ListRequest={page:int (defecto 1, min 1), pageSize:int (defecto 20, max 100), search:string?}.
+CreateCategoryRequest={code:string (3..50, único), name:string (1..100), description:string?, icon:string?, color:string?, parentId:UUID?, sortOrder:int}.
+UpdateCategoryRequest={name:string (1..100), description:string?, icon:string?, color:string?, parentId:UUID?, sortOrder:int, isActive:bool}.
+
+- **01b `GET /api/v1/categories`**: Retorna `ApiResponse<PagedResult<CategoryDto>>` de categorías activas, con soporte de paginación y búsqueda textual en `name` o `code`.
+- **01c `GET /api/v1/categories/{id}`**: Retorna `ApiResponse<CategoryDto>`. Si no existe o está inactiva -> 404 ProblemDetails.
+- **01d `POST /api/v1/categories`**: Crea una categoría activa. Código duplicado -> 409 Conflict. ParentId inexistente -> 400 Validation. Exige rol `Admin`.
 
 Territory={id:UUID,parentId:UUID?,type:string,name:string,codeIne:string?,
  bounds:number[]?}.

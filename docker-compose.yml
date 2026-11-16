@@ -65,7 +65,7 @@ services:
         condition: service_healthy
 
   frontend:
-    image: geodirectorio-frontend:nuxt4
+    image: geodirectorio-frontend:next16
     container_name: frontend
     build:
       context: ./frontend

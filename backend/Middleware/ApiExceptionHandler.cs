@@ -20,47 +20,65 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
     public async ValueTask<bool> TryHandleAsync(
         HttpContext context, Exception exception, CancellationToken cancellationToken)
     {
-        int status = exception switch
-        {
-            ValidationException => 400,
-            BadHttpRequestException bad => bad.StatusCode,
-            UnauthorizedAccessException => 401,
-            _ when IsUnavailable(exception) => 503,
-            _ => 500
-        };
+        int status = MapStatusCode(exception);
 
         var factory = context.RequestServices.GetRequiredService<ProblemDetailsFactory>();
-        ProblemDetails problem;
-        if (exception is ValidationException validation)
-        {
-            var modelState = new ModelStateDictionary();
-            string[] members = validation.ValidationResult?.MemberNames.Distinct().ToArray()
-                ?? Array.Empty<string>();
-            foreach (string member in members.Length == 0 ? new[] { "request" } : members)
-                modelState.AddModelError(member,
-                    validation.ValidationResult?.ErrorMessage ?? "The value is invalid.");
-            problem = factory.CreateValidationProblemDetails(context, modelState, statusCode: status);
-        }
-        else
-        {
-            string? detail = exception is BadHttpRequestException { StatusCode: 404 or 409 } ? exception.Message : null;
-            problem = factory.CreateProblemDetails(context, statusCode: status, detail: detail);
-        }
+        string? detail = exception is BadHttpRequestException { StatusCode: StatusCodes.Status404NotFound or StatusCodes.Status409Conflict }
+            ? exception.Message
+            : null;
 
-        if (status >= 500)
-            logger.LogError(exception, "Error al procesar la solicitud. TraceId: {TraceId}", context.TraceIdentifier);
-        else
-            logger.LogWarning("Solicitud rechazada con estado {Status}. TraceId: {TraceId}", status, context.TraceIdentifier);
+        ProblemDetails problem = exception is ValidationException validation
+            ? CreateValidationProblem(context, factory, validation, status)
+            : factory.CreateProblemDetails(context, statusCode: status, detail: detail);
 
-        if (status == 401)
+        LogOutcome(exception, status, context.TraceIdentifier);
+
+        if (status == StatusCodes.Status401Unauthorized)
+        {
             context.Response.Headers.WWWAuthenticate = "Bearer";
+        }
 
-        // Results.Problem utiliza IProblemDetailsService y su alternativa nativa de JSON.
+        // Results.Problem usa IProblemDetailsService y su fallback JSON nativo.
         await Results.Problem(problem).ExecuteAsync(context);
         return true;
     }
 
-    private static bool IsUnavailable(Exception exception)
+    private static ProblemDetails CreateValidationProblem(
+        HttpContext context, ProblemDetailsFactory factory, ValidationException validation, int status)
+    {
+        var modelState = new ModelStateDictionary();
+        string[] members = validation.ValidationResult?.MemberNames.Distinct().ToArray()
+            ?? Array.Empty<string>();
+        foreach (string member in members.Length == 0 ? new[] { "request" } : members)
+        {
+            modelState.AddModelError(member,
+                validation.ValidationResult?.ErrorMessage ?? "The value is invalid.");
+        }
+        return factory.CreateValidationProblemDetails(context, modelState, statusCode: status);
+    }
+
+    private void LogOutcome(Exception exception, int status, string? traceId)
+    {
+        if (status >= StatusCodes.Status500InternalServerError)
+        {
+            logger.LogError(exception, "Error al procesar la solicitud. TraceId: {TraceId}", traceId);
+        }
+        else
+        {
+            logger.LogWarning("Solicitud rechazada con estado {Status}. TraceId: {TraceId}", status, traceId);
+        }
+    }
+
+    private static int MapStatusCode(Exception exception) => exception switch
+    {
+        ValidationException            => StatusCodes.Status400BadRequest,
+        BadHttpRequestException bad    => bad.StatusCode,
+        UnauthorizedAccessException    => StatusCodes.Status401Unauthorized,
+        _ when IsTransientPostgres(exception) => StatusCodes.Status503ServiceUnavailable,
+        _                              => StatusCodes.Status500InternalServerError
+    };
+
+    private static bool IsTransientPostgres(Exception exception)
     {
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
