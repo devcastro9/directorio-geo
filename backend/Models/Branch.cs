@@ -41,24 +41,12 @@ public partial class Branch
     [Column("location", TypeName = "geography(Point,4326)")]
     public Point Location { get; set; } = null!;
 
-    [Column("location_source")]
-    [StringLength(20)]
-    public string? LocationSource { get; set; }
-
     [Column("status")]
     [StringLength(30)]
     public string Status { get; set; } = null!;
 
     [Column("is_primary")]
     public bool IsPrimary { get; set; }
-
-    [Column("source")]
-    [StringLength(30)]
-    public string Source { get; set; } = null!;
-
-    [Column("source_key")]
-    [StringLength(200)]
-    public string? SourceKey { get; set; }
 
     [Column("created_by_user_id")]
     public Guid? CreatedByUserId { get; set; }

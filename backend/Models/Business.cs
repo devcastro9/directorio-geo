@@ -39,14 +39,6 @@ public partial class Business
     [StringLength(20)]
     public string Status { get; set; } = null!;
 
-    [Column("source")]
-    [StringLength(30)]
-    public string Source { get; set; } = null!;
-
-    [Column("source_key")]
-    [StringLength(200)]
-    public string? SourceKey { get; set; }
-
     [Column("created_by_user_id")]
     public Guid? CreatedByUserId { get; set; }
 

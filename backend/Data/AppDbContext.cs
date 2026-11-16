@@ -142,8 +142,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.LocationSource).HasDefaultValueSql("'manual'::character varying");
-            entity.Property(e => e.Source).HasDefaultValueSql("'manual'::character varying");
             entity.Property(e => e.Status).HasDefaultValueSql("'active'::character varying");
 
             entity.HasOne(d => d.Business).WithMany(p => p.Branches)
@@ -301,8 +299,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Id).HasDefaultValueSql("uuidv7()");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.Source).HasDefaultValueSql("'manual'::character varying");
-            entity.Property(e => e.Status).HasDefaultValueSql("'draft'::character varying");
+            entity.Property(e => e.Status).HasDefaultValueSql("'pending'::character varying");
 
             entity.HasOne(d => d.StatusNavigation).WithMany(p => p.Businesses)
                 .OnDelete(DeleteBehavior.ClientSetNull)
