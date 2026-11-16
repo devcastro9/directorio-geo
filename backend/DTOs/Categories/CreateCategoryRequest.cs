@@ -7,14 +7,16 @@ namespace backend.DTOs.Categories;
 public class CreateCategoryRequest
 {
     [Required]
-    [StringLength(50)]
+    [StringLength(50, MinimumLength = 3)]
     public string Code { get; init; } = string.Empty;
 
     [Required]
-    [StringLength(150)]
+    [StringLength(100, MinimumLength = 1)]
     public string Name { get; init; } = string.Empty;
 
     public string? Description { get; init; }
+
     public Guid? ParentId { get; init; }
+
     public int SortOrder { get; init; }
 }

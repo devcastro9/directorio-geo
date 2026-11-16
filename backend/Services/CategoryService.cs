@@ -4,6 +4,7 @@ using backend.DTOs.Categories;
 using backend.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using System;
@@ -22,12 +23,30 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
     private static readonly Expression<Func<Category, CategoryDto>> Projection = c => new(
         c.Id, c.Code, c.Name, c.Description, c.ParentId, c.SortOrder, c.Active);
 
-    private IQueryable<Category> Visible => db.Categories.Where(c => c.Active && c.DeletedAt == null);
+    private IQueryable<Category> Visible => db.Categories.Where(c => c.Active);
 
     public async Task<PagedResult<CategoryDto>> ListAsync(ListRequest request, CancellationToken ct = default)
     {
+        // Validar exclusividad de filtros de jerarquía
+        if (request.RootOnly && request.ParentId.HasValue)
+        {
+            throw new BadHttpRequestException(
+                "Los parámetros 'rootOnly' y 'parentId' son mutuamente excluyentes.",
+                StatusCodes.Status400BadRequest);
+        }
+
         IQueryable<Category> query = Visible.AsNoTracking();
 
+        // Filtro de jerarquía
+        if (request.RootOnly)
+        {
+            query = query.Where(c => c.ParentId == null);
+        }
+        else if (request.ParentId.HasValue)
+        {
+            query = query.Where(c => c.ParentId == request.ParentId.Value);
+        }
+        // Búsqueda textual
         string? search = request.Search?.Trim();
         if (!string.IsNullOrEmpty(search))
         {
@@ -46,13 +65,15 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
                 .Select(Projection)
                 .ToListAsync(ct);
 
-        logger.LogDebug("Querying categories: page {Page}, total {Total}.", request.Page, total);
+        logger.LogDebug(
+            "Querying categories: page {Page}, total {Total}, rootOnly={RootOnly}, parentId={ParentId}.",
+            request.Page, total, request.RootOnly, request.ParentId);
         return new(items, request.Page, request.PageSize, total);
     }
 
     public async Task<CategoryDto> GetAsync(Guid id, CancellationToken ct = default) =>
         await Visible.AsNoTracking().Where(c => c.Id == id).Select(Projection).SingleOrDefaultAsync(ct)
-        ?? throw new BadHttpRequestException("The category was not found.", StatusCodes.Status404NotFound);
+        ?? throw new BadHttpRequestException("La categoría no fue encontrada.", StatusCodes.Status404NotFound);
 
     public async Task<CategoryDto> CreateAsync(CreateCategoryRequest request, CancellationToken ct = default)
     {
@@ -99,11 +120,22 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
             category.Description = request.Description?.Trim();
             category.ParentId = request.ParentId;
             category.SortOrder = request.SortOrder;
+            category.Active = request.IsActive;
+
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
             logger.LogInformation("Category {CategoryId} updated.", id);
-            return await Visible.AsNoTracking().Where(c => c.Id == id).Select(Projection).SingleAsync(ct);
+
+            // La proyección usa Visible (Active && DeletedAt==null).
+            // Si se desactivó, re-leer sin el filtro Active para devolver el estado actual.
+            CategoryDto? dto = await db.Categories
+                .AsNoTracking()
+                .Where(c => c.Id == id && c.DeletedAt == null)
+                .Select(Projection)
+                .SingleOrDefaultAsync(ct);
+
+            return dto ?? throw new BadHttpRequestException("La categoría no fue encontrada.", StatusCodes.Status404NotFound);
         }
         catch (Exception ex) when (ex is DbUpdateException or PostgresException)
         {
@@ -115,16 +147,18 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
     {
         try
         {
-            await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            await using IDbContextTransaction tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
 
             Category category = await FindAsync(id, ct);
 
-            if (await db.Categories.AnyAsync(c => c.ParentId == id && c.DeletedAt == null, ct))
+            if (await db.Categories.AnyAsync(c => c.ParentId == id && c.Active, ct))
+            {
                 throw new BadHttpRequestException(
-                    "Delete or reassign child categories before deleting this category.",
+                    "Elimina o reasigna las subcategorías hijas antes de eliminar esta categoría.",
                     StatusCodes.Status409Conflict);
-
+            }
             category.Active = false;
+            // deleted_at y deleted_by_user_id los gestiona el trigger de BD.
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
@@ -138,7 +172,7 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
 
     private async Task<Category> FindAsync(Guid id, CancellationToken ct) =>
         await Visible.SingleOrDefaultAsync(c => c.Id == id, ct)
-        ?? throw new BadHttpRequestException("The category was not found.", StatusCodes.Status404NotFound);
+        ?? throw new BadHttpRequestException("La categoría no fue encontrada.", StatusCodes.Status404NotFound);
 
     private async Task ValidateParentAsync(Guid? parentId, Guid? id, CancellationToken ct)
     {
@@ -148,7 +182,7 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
         {
             if (current == id || !visited.Add(current.Value))
                 throw new BadHttpRequestException(
-                    "The parent category would create a cycle in the hierarchy.",
+                    "La categoría padre generaría un ciclo en la jerarquía.",
                     StatusCodes.Status409Conflict);
 
             var parent = await Visible.AsNoTracking()
@@ -158,7 +192,7 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
 
             if (parent is null)
                 throw new ValidationException(
-                    new ValidationResult("The parent category must exist and be active.", ["ParentId"]),
+                    new ValidationResult("La categoría padre debe existir y estar activa.", ["ParentId"]),
                     null, parentId);
 
             current = parent.ParentId;
@@ -173,13 +207,13 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
         return pg?.SqlState switch
         {
             PostgresErrorCodes.UniqueViolation =>
-                new BadHttpRequestException("A category with this code already exists.", StatusCodes.Status409Conflict),
+                new BadHttpRequestException("Ya existe una categoría con ese código.", StatusCodes.Status409Conflict),
             PostgresErrorCodes.ForeignKeyViolation =>
-                new BadHttpRequestException("The category relationship changed. Check the parent category.", StatusCodes.Status409Conflict),
+                new BadHttpRequestException("La relación de categoría cambió. Verifica la categoría padre.", StatusCodes.Status409Conflict),
             PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected =>
-                new BadHttpRequestException("The catalog changed during the operation. Try again.", StatusCodes.Status409Conflict),
+                new BadHttpRequestException("El catálogo cambió durante la operación. Intenta nuevamente.", StatusCodes.Status409Conflict),
             PostgresErrorCodes.RaiseException =>
-                new BadHttpRequestException("The parent category is incompatible with the hierarchy.", StatusCodes.Status409Conflict),
+                new BadHttpRequestException("La categoría padre es incompatible con la jerarquía.", StatusCodes.Status409Conflict),
             _ => ex
         };
     }

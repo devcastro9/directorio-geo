@@ -233,14 +233,25 @@ no mezclar code e ID en el mismo parámetro.
 
 ### 4.1 Módulo Canónico de Categorías (/api/v1/categories)
 
-CategoryDto={id:UUID,code:string,name:string,description:string?,icon:string?,color:string?,parentId:UUID?,sortOrder:int,isActive:bool}.
-ListRequest={page:int (defecto 1, min 1), pageSize:int (defecto 20, max 100), search:string?}.
-CreateCategoryRequest={code:string (3..50, único), name:string (1..100), description:string?, icon:string?, color:string?, parentId:UUID?, sortOrder:int}.
-UpdateCategoryRequest={name:string (1..100), description:string?, icon:string?, color:string?, parentId:UUID?, sortOrder:int, isActive:bool}.
+> **Nota implementación 2026-11-16:** Las columnas `icon` y `color` no existen en `catalog.category`.
+> Se omiten de `CategoryDto`, `CreateCategoryRequest` y `UpdateCategoryRequest` hasta que se añadan al DDL.
 
-- **01b `GET /api/v1/categories`**: Retorna `ApiResponse<PagedResult<CategoryDto>>` de categorías activas, con soporte de paginación y búsqueda textual en `name` o `code`.
-- **01c `GET /api/v1/categories/{id}`**: Retorna `ApiResponse<CategoryDto>`. Si no existe o está inactiva -> 404 ProblemDetails.
-- **01d `POST /api/v1/categories`**: Crea una categoría activa. Código duplicado -> 409 Conflict. ParentId inexistente -> 400 Validation. Exige rol `Admin`.
+CategoryDto={id:UUID,code:string,name:string,description:string?,parentId:UUID?,sortOrder:int,isActive:bool}.
+ListRequest={page:int (defecto 1, min 1), pageSize:int (defecto 20, max 100), search:string?,
+  parentId:UUID? (hijos directos de esa categoría; excluyente con rootOnly),
+  rootOnly:bool (solo categorías raíz; excluyente con parentId)}.
+CreateCategoryRequest={code:string (3..50, único), name:string (1..100), description:string?, parentId:UUID?, sortOrder:int}.
+UpdateCategoryRequest={code:string (3..50), name:string (1..100), description:string?, parentId:UUID?, sortOrder:int, isActive:bool}.
+  PUT reemplaza todos los campos editables incluyendo code (que sí es editable en actualización).
+  parentId:null elimina la relación con el padre. deleted_at y deleted_by_user_id los gestiona trigger de BD.
+
+- **01b `GET /api/v1/categories`**: Retorna `ApiResponse<PagedResult<CategoryDto>>` de categorías activas.
+  Soporta paginación, búsqueda textual en `name` o `code`, y filtrado jerárquico por `parentId` o `rootOnly`.
+  `parentId` y `rootOnly` son mutuamente excluyentes; combinados devuelven 400.
+- **01c `GET /api/v1/categories/{id}`**: Retorna `ApiResponse<CategoryDto>`. Si no existe o está eliminada -> 404 ProblemDetails.
+- **01d `POST /api/v1/categories`**: Crea una categoría activa. Código duplicado -> 409 Conflict. ParentId inexistente/inactivo -> 400 Validation. Exige rol `Admin`.
+- **`PUT /api/v1/categories/{id}`**: Reemplaza campos editables. Si se desactiva (`isActive:false`) la categoría sigue visible en la respuesta con `isActive:false`. Exige rol `Admin`.
+- **`DELETE /api/v1/categories/{id}`**: Baja lógica (soft-delete). Rechaza si tiene hijas sin eliminar -> 409 Conflict. `deleted_at`/`deleted_by_user_id` los escribe el trigger de BD. Exige rol `Admin`.
 
 Territory={id:UUID,parentId:UUID?,type:string,name:string,codeIne:string?,
  bounds:number[]?}.
