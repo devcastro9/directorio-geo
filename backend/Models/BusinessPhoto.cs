@@ -9,9 +9,6 @@ namespace backend.Models;
 [Index("PhotoSha256", Name = "business_photo_sha256_idx")]
 public partial class BusinessPhoto
 {
-    [Column("active")]
-    public bool Active { get; set; }
-
     [Key]
     [Column("id")]
     public Guid Id { get; set; }
@@ -46,6 +43,9 @@ public partial class BusinessPhoto
     [Column("sort_order")]
     public int SortOrder { get; set; }
 
+    [Column("active")]
+    public bool Active { get; set; }
+
     [Column("created_by_user_id")]
     public Guid CreatedByUserId { get; set; }
 
@@ -59,7 +59,7 @@ public partial class BusinessPhoto
     public DateTime CreatedAt { get; set; }
 
     [Column("updated_at")]
-    public DateTime UpdatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 
     [Column("deleted_at")]
     public DateTime? DeletedAt { get; set; }

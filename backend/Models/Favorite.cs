@@ -7,11 +7,9 @@ namespace backend.Models;
 
 [PrimaryKey("UserId", "BranchId")]
 [Table("favorite", Schema = "app")]
+[Index("BranchId", Name = "favorite_branch_idx")]
 public partial class Favorite
 {
-    [Column("active")]
-    public bool Active { get; set; }
-
     [Key]
     [Column("user_id")]
     public Guid UserId { get; set; }

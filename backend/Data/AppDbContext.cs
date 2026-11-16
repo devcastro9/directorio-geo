@@ -98,6 +98,7 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
         modelBuilder
             .HasPostgresExtension("btree_gist")
             .HasPostgresExtension("pg_trgm")
+            .HasPostgresExtension("pgrouting")
             .HasPostgresExtension("postgis")
             .HasPostgresExtension("unaccent");
 
@@ -115,7 +116,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.AdPlacements).HasConstraintName("ad_placement_branch_id_fkey");
 
@@ -145,7 +145,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.LocationSource).HasDefaultValueSql("'manual'::character varying");
             entity.Property(e => e.Source).HasDefaultValueSql("'manual'::character varying");
             entity.Property(e => e.Status).HasDefaultValueSql("'active'::character varying");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Business).WithMany(p => p.Branches)
                 .OnDelete(DeleteBehavior.Restrict)
@@ -167,7 +166,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.BranchCategories)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -192,7 +190,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.BranchContacts)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -208,7 +205,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.BranchFeatures)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -227,7 +223,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.BranchHourOverrides)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -243,7 +238,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.BranchPayments)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -266,7 +260,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
             entity.Property(e => e.FileSize).HasComputedColumnSql("octet_length(photo_data)", true);
             entity.Property(e => e.PhotoSha256).HasComputedColumnSql("sha256(photo_data)", true);
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.BranchPhotos)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -282,7 +275,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.BranchServiceProducts)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -300,7 +292,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<Business>(entity =>
@@ -312,7 +303,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
             entity.Property(e => e.Source).HasDefaultValueSql("'manual'::character varying");
             entity.Property(e => e.Status).HasDefaultValueSql("'draft'::character varying");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.StatusNavigation).WithMany(p => p.Businesses)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -329,7 +319,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Business).WithMany(p => p.BusinessOwners)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -348,7 +337,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
             entity.Property(e => e.FileSize).HasComputedColumnSql("octet_length(photo_data)", true);
             entity.Property(e => e.PhotoSha256).HasComputedColumnSql("sha256(photo_data)", true);
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Business).WithMany(p => p.BusinessPhotos)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -362,7 +350,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<BusinessSubscription>(entity =>
@@ -377,7 +364,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
             entity.Property(e => e.Status).HasDefaultValueSql("'pending'::character varying");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Business).WithMany(p => p.BusinessSubscriptions)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -402,7 +388,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Parent).WithMany(p => p.InverseParent).HasConstraintName("category_parent_id_fkey");
         });
@@ -447,7 +432,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
         {
             entity.HasKey(e => new { e.UserId, e.BranchId }).HasName("favorite_pkey");
 
-            entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
 
@@ -466,7 +450,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<Holiday>(entity =>
@@ -479,7 +462,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Territory).WithMany(p => p.Holidays).HasConstraintName("holiday_territory_id_fkey");
         });
@@ -494,7 +476,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.OpeningHours)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -508,7 +489,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<ParameterValue>(entity =>
@@ -524,7 +504,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
             entity.Property(e => e.ScopeType).HasDefaultValueSql("'global'::character varying");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.ValidFrom).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.CodeNavigation).WithMany(p => p.ParameterValues)
@@ -542,7 +521,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<PublishedBranch>(entity =>
@@ -566,7 +544,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
             entity.Property(e => e.ModerationStatus).HasDefaultValueSql("\nCASE\n    WHEN catalog.param_bool('review.moderation_post'::text) THEN 'visible'::text\n    ELSE 'hidden'::text\nEND");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.Reviews)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -584,7 +561,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<SearchSynonym>(entity =>
@@ -596,7 +572,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
             entity.Property(e => e.Locale).HasDefaultValueSql("'es-BO'::character varying");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<ServiceProduct>(entity =>
@@ -610,7 +585,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
             entity.Property(e => e.ItemType).HasDefaultValueSql("'S'::bpchar");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<ServiceProductPrice>(entity =>
@@ -625,7 +599,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.BranchServiceProduct).WithOne(p => p.ServiceProductPrice)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -640,7 +613,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
             entity.Property(e => e.Status).HasDefaultValueSql("'pending'::character varying");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.PaymentMethod).WithMany(p => p.SubscriptionPayments).HasConstraintName("subscription_payment_payment_method_id_fkey");
 
@@ -660,7 +632,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<SubscriptionStatus>(entity =>
@@ -670,7 +641,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<SubscriptionType>(entity =>
@@ -683,7 +653,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.Active).HasDefaultValue(true);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<Territory>(entity =>
@@ -697,7 +666,6 @@ public partial class AppDbContext(DbContextOptions<AppDbContext> options) : Iden
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.CreatedByUserId).HasDefaultValueSql("app.actor()");
             entity.Property(e => e.Source).HasDefaultValueSql("'INE'::character varying");
-            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
 
             entity.HasOne(d => d.Parent).WithMany(p => p.InverseParent).HasConstraintName("territory_parent_id_fkey");
         });
