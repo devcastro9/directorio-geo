@@ -21,7 +21,7 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
 {
     private static readonly Expression<Func<Category, CategoryDto>> Projection = c => new(
         c.Id, c.Code, c.Name, c.Description, c.ParentId, c.SortOrder,
-        c.Active, c.CreatedAt, c.UpdatedAt);
+        c.Active);
 
     private IQueryable<Category> Visible => db.Categories.Where(c => c.Active && c.DeletedAt == null);
 
@@ -65,9 +65,7 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
                 Description = request.Description?.Trim(),
                 ParentId = request.ParentId,
                 SortOrder = request.SortOrder,
-                Active = true,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                Active = true
             };
             db.Categories.Add(category);
             await db.SaveChangesAsync(ct);
@@ -89,7 +87,6 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
             category.Description = request.Description?.Trim();
             category.ParentId = request.ParentId;
             category.SortOrder = request.SortOrder;
-            category.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
             await db.Entry(category).ReloadAsync(ct);
             logger.LogInformation("Categoría {CategoryId} actualizada.", id);
@@ -104,8 +101,6 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
             if (await db.Categories.AnyAsync(c => c.ParentId == id && c.DeletedAt == null, ct))
                 throw new BadHttpRequestException("Delete or reassign child categories before deleting this category.", StatusCodes.Status409Conflict);
             category.Active = false;
-            category.DeletedAt = DateTime.UtcNow;
-            category.UpdatedAt = category.DeletedAt.Value;
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Categoría {CategoryId} eliminada de forma lógica.", id);
             return true;
@@ -174,5 +169,5 @@ public sealed class CategoryService(AppDbContext db, ILogger<CategoryService> lo
 
     private static CategoryDto Map(Category c) => new(
         c.Id, c.Code, c.Name, c.Description, c.ParentId, c.SortOrder,
-        c.Active, c.CreatedAt, c.UpdatedAt);
+        c.Active);
 }
