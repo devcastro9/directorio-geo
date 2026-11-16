@@ -1,10 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿namespace backend.Controllers;
 
-namespace backend.Controllers
+public sealed class BranchesController : ApiControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class BranchesController : ControllerBase
-    {
-    }
 }

@@ -2,6 +2,7 @@
 using backend.Middleware;
 using backend.Services;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,13 +26,18 @@ namespace backend
                 });
                 if (builder.Environment.IsDevelopment())
                 {
-                    options.EnableSensitiveDataLogging();
                     options.EnableDetailedErrors();
                 }
             });
             builder.Services.AddScoped<ICategoryService, CategoryService>();
             builder.Services.AddProblemDetails();
             builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+            builder.Services.Configure<RouteOptions>(options =>
+            {
+                options.LowercaseUrls = true;
+                options.LowercaseQueryStrings = true;
+            });
+            builder.Services.AddAuthorization();
             builder.Services.AddControllers(options =>
             {
                 options.ReturnHttpNotAcceptable = true;
@@ -57,7 +63,7 @@ namespace backend
             }
             app.UseCors("CorsPolicy");
             //app.UseHttpsRedirection();
-            //app.UseAuthorization();
+            app.UseAuthorization();
             app.MapControllers();
             app.Run();
         }

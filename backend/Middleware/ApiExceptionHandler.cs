@@ -61,21 +61,21 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
     {
         if (status >= StatusCodes.Status500InternalServerError)
         {
-            logger.LogError(exception, "Error al procesar la solicitud. TraceId: {TraceId}", traceId);
+            logger.LogError(exception, "Error processing request. TraceId: {TraceId}", traceId);
         }
         else
         {
-            logger.LogWarning("Solicitud rechazada con estado {Status}. TraceId: {TraceId}", status, traceId);
+            logger.LogWarning("Request rejected with status {Status}. TraceId: {TraceId}", status, traceId);
         }
     }
 
     private static int MapStatusCode(Exception exception) => exception switch
     {
-        ValidationException            => StatusCodes.Status400BadRequest,
-        BadHttpRequestException bad    => bad.StatusCode,
-        UnauthorizedAccessException    => StatusCodes.Status401Unauthorized,
+        ValidationException => StatusCodes.Status400BadRequest,
+        BadHttpRequestException bad => bad.StatusCode,
+        UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
         _ when IsTransientPostgres(exception) => StatusCodes.Status503ServiceUnavailable,
-        _                              => StatusCodes.Status500InternalServerError
+        _ => StatusCodes.Status500InternalServerError
     };
 
     private static bool IsTransientPostgres(Exception exception)

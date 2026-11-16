@@ -18,7 +18,9 @@ El backend compila limpiamente (`dotnet build` exitoso con 0 errores y 0 adverte
 | `/api/v1/Prueba` | `GET` | Implementado | Prueba de acceso a datos contra `catalog.parameter_definition`. |
 | `/api/v1/categories` | `GET` | Implementado | Listado paginado de categorías activas con soporte para búsqueda textual (`search`). |
 | `/api/v1/categories/{id}` | `GET` | Implementado | Consulta de categoría individual por identificador UUID. |
-| `/api/v1/categories` | `POST` | Implementado | Creación de nueva categoría con validación de código único. |
+| `/api/v1/categories` | `POST` | Implementado | Creación de nueva categoría con validación de código único (requiere rol `Admin`). |
+| `/api/v1/categories/{id}` | `PUT` | Implementado | Actualización completa de datos editables de categoría (requiere rol `Admin`). |
+| `/api/v1/categories/{id}` | `DELETE` | Implementado | Baja lógica de categoría devolviendo 204 No Content (requiere rol `Admin`). |
 | `/api/v1/auth/*` | Varios | En desarrollo | Modelos Identity con Guid presentes; controladores pendientes de completar servicio JWT. |
 | `/api/v1/businesses/*` | Varios | Pendiente | Controladores y servicios pendientes de implementación del contrato. |
 | `/api/v1/branches/*` | Varios | Pendiente | Controladores y servicios espaciales pendientes de implementación. |
@@ -62,6 +64,7 @@ backend/
 ├── Properties/
 │   └── launchSettings.json  # Perfiles de ejecución (http: 5089, https: 7273)
 ├── Controllers/
+│   ├── ApiControllerBase.cs    # Clase base canónica con enrutamiento api/v1/[controller] y ProblemDetails
 │   ├── CategoriesController.cs # CRUD y listado de categorías (/api/v1/categories)
 │   ├── PruebaController.cs     # Endpoint de prueba (/api/v1/Prueba)
 │   ├── AuthController.cs       # Endpoints de autenticación (en desarrollo)

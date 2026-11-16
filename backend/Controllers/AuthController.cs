@@ -1,10 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿namespace backend.Controllers;
 
-namespace backend.Controllers
+public sealed class AuthController : ApiControllerBase
 {
-    [Route("api/v1/[controller]")]
-    [ApiController]
-    public class AuthController : ControllerBase
-    {
-    }
 }

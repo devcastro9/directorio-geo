@@ -1,10 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿namespace backend.Controllers;
 
-namespace backend.Controllers
+public sealed class BusinessesController : ApiControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class BusinessesController : ControllerBase
-    {
-    }
 }
