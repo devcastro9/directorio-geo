@@ -18,13 +18,14 @@ namespace backend
         public static void Main(string[] args)
         {
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
-            builder.Services.AddDbContext<AppDbContext>(options =>
+            builder.Services.AddDbContext<AppDbContext>((sp, options) =>
             {
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), npgsql =>
                 {
                     npgsql.UseNetTopologySuite();
                     npgsql.CommandTimeout(30);
                 });
+                options.AddInterceptors(sp.GetRequiredService<TransactionInterceptor>());
                 if (builder.Environment.IsDevelopment())
                 {
                     options.EnableDetailedErrors();
