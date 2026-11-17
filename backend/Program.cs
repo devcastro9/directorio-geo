@@ -36,6 +36,7 @@ namespace backend
                 options.AddInterceptors(sp.GetRequiredService<TransactionInterceptor>());
                 if (builder.Environment.IsDevelopment())
                 {
+                    //options.EnableSensitiveDataLogging();
                     options.EnableDetailedErrors();
                 }
             });

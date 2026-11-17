@@ -34,7 +34,11 @@ El backend compila limpiamente (`dotnet build` exitoso con 0 errores y 0 adverte
 | `/api/v1/management/branches/{id}/photos` | `POST` | Implementado | Subida de foto binaria multipart JPEG/PNG/WebP con límites validados (Admin). |
 | `/api/v1/management/photos/{id}` | `PUT` / `DELETE` | Implementado | Actualización de metadatos/portada y baja lógica de foto (Admin). |
 | `/api/v1/photos/{id}` | `GET` | Implementado | Entrega binaria de foto en streaming con cabeceras nosniff y no-store. |
-| `/api/v1/auth/*` | Varios | En desarrollo | Modelos Identity con Guid presentes; controladores pendientes de completar servicio JWT. |
+| `/api/v1/auth/login` | `POST` | Implementado | Autenticación con credenciales, emisión de JWT y cookie HttpOnly `dg_refresh` (P1 Admin, P2 activa). |
+| `/api/v1/auth/refresh` | `POST` | Implementado | Rotación atómica de token de refresco con protección anti-replay (revocación de familia). |
+| `/api/v1/auth/logout` | `POST` | Implementado | Cierre de sesión y revocación de familia de tokens con eliminación de cookie. |
+| `/api/v1/auth/me` | `GET` | Implementado | Consulta de datos y roles del usuario autenticado con sesión activa vigente. |
+| `/api/v1/auth/register` | `POST` | Implementado | Alta de nuevo usuario con rol User (activo a partir de P2, responde 404 en P1). |
 
 ### Componentes y Servicios Clave
 
@@ -46,7 +50,7 @@ El backend compila limpiamente (`dotnet build` exitoso con 0 errores y 0 adverte
 | **Servicio de Búsqueda Espacial** | `IBranchSearchService` y `BranchSearchService` implementados con NetTopologySuite, vistas espaciales y soporte JSON/GeoJSON. |
 | **Servicio de Negocios y Sucursales** | `IBusinessService` y `BusinessService` implementados cubriendo todo el agregado de administración P1 (negocios, sucursales y fotos). |
 | **DTOs Base y Dominio** | `ApiResponse<T>`, `PagedResult<T>`, `ListRequest` y DTOs canónicos en subdirectorios `Categories/`, `Branches/`, `Businesses/` y `Management/`. |
-| **Identity y JWT** | Modelos `ApplicationUser` y `ApplicationRole` con claves Guid; configuración de autenticación Bearer pendiente en pipeline. |
+| **Identity y JWT** | Modelos `ApplicationUser` y `ApplicationRole` con claves Guid; servicio `IAuthService`/`AuthService`, rotación de refresh tokens en `AspNetUserTokens` y validación de `sid` activo en `OnTokenValidated`. |
 | **OpenAPI y Scalar** | Habilitados en entorno `Development` (`/openapi/v1.json`, `/scalar/v1`). |
 
 ---
