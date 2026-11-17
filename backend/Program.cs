@@ -43,9 +43,14 @@ namespace backend
             builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
             {
                 options.Password.RequireDigit = true;
-                options.Password.RequiredLength = 8;
-                options.Password.RequireNonAlphanumeric = false;
+                options.Password.RequiredLength = 7;
+                options.Password.RequireNonAlphanumeric = true;
+                options.Password.RequireUppercase = true;
+                options.Password.RequireLowercase = true;
                 options.User.RequireUniqueEmail = true;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.AllowedForNewUsers = true;
             })
             .AddEntityFrameworkStores<AppDbContext>()
             .AddDefaultTokenProviders();
@@ -69,12 +74,14 @@ namespace backend
                     ValidIssuer = jwtSection["Issuer"],
                     ValidAudience = jwtSection["Audience"],
                     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSection["Key"]!)),
-                    ClockSkew = TimeSpan.Zero // Elimina los 5 min extra de gracia por defecto al expirar
+                    ClockSkew = TimeSpan.FromSeconds(30),
+                    ValidAlgorithms = [SecurityAlgorithms.HmacSha256]
                 };
             });
 
             builder.Services.AddAuthorization();
 
+            builder.Services.AddScoped<IAuthService, AuthService>();
             builder.Services.AddScoped<ICategoryService, CategoryService>();
             builder.Services.AddScoped<IBranchSearchService, BranchSearchService>();
             builder.Services.AddScoped<IBusinessService, BusinessService>();
