@@ -99,8 +99,7 @@ namespace backend
                 options.AddPolicy("CorsPolicy", policy =>
                     policy.AllowAnyOrigin()
                           .AllowAnyHeader()
-                          .AllowAnyMethod()
-                          .WithExposedHeaders("X-Created-Resource-Id", "Location", "ETag"));
+                          .AllowAnyMethod());
             });
             builder.Services.AddOpenApi();
 
