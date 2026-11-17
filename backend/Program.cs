@@ -1,4 +1,5 @@
-﻿using backend.Data;
+﻿using backend.BackgroundJobs;
+using backend.Data;
 using backend.Middleware;
 using backend.Services;
 using Microsoft.AspNetCore.Builder;
@@ -30,6 +31,9 @@ namespace backend
                 }
             });
             builder.Services.AddScoped<ICategoryService, CategoryService>();
+            builder.Services.AddScoped<IBranchSearchService, BranchSearchService>();
+            builder.Services.AddScoped<IBusinessService, BusinessService>();
+            builder.Services.AddHostedService<ArchiveEventsJob>();
             builder.Services.AddProblemDetails();
             builder.Services.AddExceptionHandler<ApiExceptionHandler>();
             builder.Services.Configure<RouteOptions>(options =>
@@ -48,7 +52,10 @@ namespace backend
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("CorsPolicy", policy =>
-                    policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+                    policy.AllowAnyOrigin()
+                          .AllowAnyHeader()
+                          .AllowAnyMethod()
+                          .WithExposedHeaders("X-Created-Resource-Id", "Location", "ETag"));
             });
             builder.Services.AddOpenApi();
 

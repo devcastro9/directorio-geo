@@ -21,9 +21,20 @@ El backend compila limpiamente (`dotnet build` exitoso con 0 errores y 0 adverte
 | `/api/v1/categories` | `POST` | Implementado | Creación de nueva categoría con validación de código único (requiere rol `Admin`). |
 | `/api/v1/categories/{id}` | `PUT` | Implementado | Actualización completa de datos editables de categoría (requiere rol `Admin`). |
 | `/api/v1/categories/{id}` | `DELETE` | Implementado | Baja lógica de categoría devolviendo 204 No Content (requiere rol `Admin`). |
+| `/api/v1/branches` | `GET` | Implementado | Búsqueda pública espacial y filtrada de sucursales (formatos JSON y GeoJSON). |
+| `/api/v1/branches/{id}` | `GET` | Implementado | Consulta pública de ficha de sucursal detallada por UUID. |
+| `/api/v1/businesses/{slug}` | `GET` | Implementado | Consulta pública de negocio y sus sucursales por slug. |
+| `/api/v1/management/businesses` | `GET` / `POST` | Implementado | Listado administrativo y alta de negocio con primera sucursal (Admin). |
+| `/api/v1/management/businesses/{id}` | `GET` / `PUT` / `DELETE` | Implementado | Detalle, actualización y baja lógica de negocio (Admin). |
+| `/api/v1/management/businesses/{id}/publication` | `PUT` | Implementado | Publicación o retorno a borrador de negocio con validación exhaustiva (Admin). |
+| `/api/v1/management/businesses/{id}/restore` | `POST` | Implementado | Restauración de negocio archivado y sucursales seleccionadas (Admin). |
+| `/api/v1/management/businesses/{id}/branches` | `POST` | Implementado | Creación de nueva sucursal dentro del negocio (Admin). |
+| `/api/v1/management/branches/{id}` | `PUT` / `DELETE` | Implementado | Actualización completa y baja lógica de sucursal (Admin). |
+| `/api/v1/management/branches/{id}/restore` | `POST` | Implementado | Restauración de sucursal dada de baja (Admin). |
+| `/api/v1/management/branches/{id}/photos` | `POST` | Implementado | Subida de foto binaria multipart JPEG/PNG/WebP con límites validados (Admin). |
+| `/api/v1/management/photos/{id}` | `PUT` / `DELETE` | Implementado | Actualización de metadatos/portada y baja lógica de foto (Admin). |
+| `/api/v1/photos/{id}` | `GET` | Implementado | Entrega binaria de foto en streaming con cabeceras nosniff y no-store. |
 | `/api/v1/auth/*` | Varios | En desarrollo | Modelos Identity con Guid presentes; controladores pendientes de completar servicio JWT. |
-| `/api/v1/businesses/*` | Varios | Pendiente | Controladores y servicios pendientes de implementación del contrato. |
-| `/api/v1/branches/*` | Varios | Pendiente | Controladores y servicios espaciales pendientes de implementación. |
 
 ### Componentes y Servicios Clave
 
@@ -32,7 +43,9 @@ El backend compila limpiamente (`dotnet build` exitoso con 0 errores y 0 adverte
 | **PostgreSQL y EF Core** | `AppDbContext` registrado con Npgsql y NetTopologySuite; timeout de comandos de 30 segundos. |
 | **Manejo de Errores** | `ApiExceptionHandler` registrado con `IExceptionHandler`, devolviendo RFC 7807 (`ProblemDetails`) y mapeo a 503 para fallos transitorios de PostgreSQL. |
 | **Servicio de Categorías** | `ICategoryService` y `CategoryService` implementados y registrados en inyección de dependencias. |
-| **DTOs Base** | `ApiResponse<T>`, `PagedResult<T>`, `ListRequest` y DTOs específicos de categorías. |
+| **Servicio de Búsqueda Espacial** | `IBranchSearchService` y `BranchSearchService` implementados con NetTopologySuite, vistas espaciales y soporte JSON/GeoJSON. |
+| **Servicio de Negocios y Sucursales** | `IBusinessService` y `BusinessService` implementados cubriendo todo el agregado de administración P1 (negocios, sucursales y fotos). |
+| **DTOs Base y Dominio** | `ApiResponse<T>`, `PagedResult<T>`, `ListRequest` y DTOs canónicos en subdirectorios `Categories/`, `Branches/`, `Businesses/` y `Management/`. |
 | **Identity y JWT** | Modelos `ApplicationUser` y `ApplicationRole` con claves Guid; configuración de autenticación Bearer pendiente en pipeline. |
 | **OpenAPI y Scalar** | Habilitados en entorno `Development` (`/openapi/v1.json`, `/scalar/v1`). |
 
@@ -66,18 +79,27 @@ backend/
 ├── Controllers/
 │   ├── ApiControllerBase.cs    # Clase base canónica con enrutamiento api/v1/[controller] y ProblemDetails
 │   ├── CategoriesController.cs # CRUD y listado de categorías (/api/v1/categories)
+│   ├── BranchesController.cs   # Búsqueda pública JSON/GeoJSON y ficha de sucursales (/api/v1/branches)
+│   ├── BusinessesController.cs # Ficha pública de negocio por slug (/api/v1/businesses)
+│   ├── ManagementController.cs # Administración integral P1 de negocios, sucursales y fotos (/api/v1/management)
+│   ├── PhotosController.cs     # Entrega binaria de fotos (/api/v1/photos)
 │   ├── PruebaController.cs     # Endpoint de prueba (/api/v1/Prueba)
-│   ├── AuthController.cs       # Endpoints de autenticación (en desarrollo)
-│   ├── BusinessesController.cs # Endpoints de negocios (pendiente)
-│   └── BranchesController.cs   # Endpoints de sucursales (pendiente)
+│   └── AuthController.cs       # Endpoints de autenticación (en desarrollo)
 ├── DTOs/
 │   ├── ApiResponse.cs          # Envoltorio canónico de respuestas API
 │   ├── PagedResult.cs          # Estructura de paginación
 │   ├── ListRequest.cs          # Petición base con página, tamaño y búsqueda
-│   └── Categories/             # CategoryDto, CreateCategoryRequest, UpdateCategoryRequest
+│   ├── Categories/             # CategoryDto, CreateCategoryRequest, UpdateCategoryRequest
+│   ├── Branches/               # BranchSearchRequest, BranchSummaryDto, PointDto, GeoJson*
+│   ├── Businesses/             # PublicBusinessDto, PublicBranchDto, CatalogRefDto, PhotoDto, etc.
+│   └── Management/             # ManagedBusinessDto, BranchInputDto, BusinessInputDto, etc.
 ├── Services/
 │   ├── ICategoryService.cs     # Contrato del servicio de categorías
-│   └── CategoryService.cs      # Implementación del servicio de categorías
+│   ├── CategoryService.cs      # Implementación del servicio de categorías
+│   ├── IBranchSearchService.cs # Contrato de búsqueda pública y fichas
+│   ├── BranchSearchService.cs  # Implementación espacial con NetTopologySuite
+│   ├── IBusinessService.cs     # Contrato de administración de agregados
+│   └── BusinessService.cs      # Implementación de negocio, sucursales y fotos
 ├── Data/
 │   ├── AppDbContext.cs         # DbContext principal derivado de IdentityDbContext
 │   └── Migrations/             # Scripts SQL de soporte

@@ -6,6 +6,21 @@ using System;
 
 namespace backend.Data;
 
+/// <summary>
+/// Contexto principal de EF Core de la aplicación. Hereda de <see cref="IdentityDbContext{TUser, TRole, TKey}"/>,
+/// por lo que incluye las tablas de ASP.NET Core Identity (usuarios, roles, claims, etc.)
+/// junto con las entidades del dominio sobre PostgreSQL.
+/// </summary>
+/// <remarks>
+/// <list type="bullet">
+/// <item>Generado por scaffolding y ajustado a mano (herencia de Identity).</item>
+/// <item>Extensiones de PostgreSQL requeridas: <c>btree_gist</c>, <c>pg_trgm</c>, <c>pgrouting</c>, <c>postgis</c> y <c>unaccent</c>.</item>
+/// <item>Los identificadores usan <c>uuidv7()</c> como valor por defecto en la base de datos.</item>
+/// <item>Las columnas de auditoría <c>CreatedAt</c> (<c>now()</c>) y <c>CreatedByUserId</c> (<c>app.actor()</c>) se llenan en la base de datos.</item>
+/// <item>Muchas tablas usan borrado lógico mediante la columna <c>Active</c>, y varios índices son parciales (<c>HasFilter</c>) sobre registros activos.</item>
+/// <item>Las funciones SQL mapeadas (<c>IsOpenAt</c>, <c>Normalize</c>, etc.) están en la otra parte parcial de esta clase.</item>
+/// </list>
+/// </remarks>
 public partial class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>(options) // DbContext(options)
 {
     public virtual DbSet<AdPlacement> AdPlacements { get; set; }
