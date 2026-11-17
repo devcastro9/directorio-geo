@@ -8,7 +8,6 @@ namespace backend.Models;
 
 [Table("business", Schema = "app")]
 [Index("Slug", Name = "business_slug_key", IsUnique = true)]
-[Index("Source", "SourceKey", Name = "business_source_source_key_key", IsUnique = true)]
 [Index("TaxId", Name = "business_tax_id_key", IsUnique = true)]
 public partial class Business
 {

@@ -10,7 +10,6 @@ namespace backend.Models;
 [Table("branch", Schema = "app")]
 [Index("BusinessId", "Code", Name = "branch_business_id_code_key", IsUnique = true)]
 [Index("Slug", Name = "branch_slug_key", IsUnique = true)]
-[Index("Source", "SourceKey", Name = "branch_source_source_key_key", IsUnique = true)]
 public partial class Branch
 {
     [Key]

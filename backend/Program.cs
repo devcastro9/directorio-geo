@@ -18,6 +18,8 @@ namespace backend
         public static void Main(string[] args)
         {
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+            builder.Services.AddHttpContextAccessor();
+            builder.Services.AddScoped<TransactionInterceptor>();
             builder.Services.AddDbContext<AppDbContext>((sp, options) =>
             {
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"), npgsql =>
