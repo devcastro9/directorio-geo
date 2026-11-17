@@ -1,14 +1,20 @@
 ﻿using backend.BackgroundJobs;
 using backend.Data;
+using backend.Identity;
 using backend.Middleware;
 using backend.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
+using System;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace backend
@@ -33,6 +39,42 @@ namespace backend
                     options.EnableDetailedErrors();
                 }
             });
+            // Identity Core
+            builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
+            {
+                options.Password.RequireDigit = true;
+                options.Password.RequiredLength = 8;
+                options.Password.RequireNonAlphanumeric = false;
+                options.User.RequireUniqueEmail = true;
+            })
+            .AddEntityFrameworkStores<AppDbContext>()
+            .AddDefaultTokenProviders();
+
+            IConfigurationSection jwtSection = builder.Configuration.GetSection("Jwt");
+            builder.Services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
+            .AddJwtBearer(options =>
+            {
+                options.SaveToken = true;
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = jwtSection["Issuer"],
+                    ValidAudience = jwtSection["Audience"],
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSection["Key"]!)),
+                    ClockSkew = TimeSpan.Zero // Elimina los 5 min extra de gracia por defecto al expirar
+                };
+            });
+
+            builder.Services.AddAuthorization();
+
             builder.Services.AddScoped<ICategoryService, CategoryService>();
             builder.Services.AddScoped<IBranchSearchService, BranchSearchService>();
             builder.Services.AddScoped<IBusinessService, BusinessService>();
@@ -73,6 +115,7 @@ namespace backend
             }
             app.UseCors("CorsPolicy");
             //app.UseHttpsRedirection();
+            app.UseAuthentication();
             app.UseAuthorization();
             app.MapControllers();
             app.Run();
