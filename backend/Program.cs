@@ -40,8 +40,8 @@ namespace backend
                     options.EnableDetailedErrors();
                 }
             });
-            // Identity Core
-            builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
+            // Identity Core + JWT
+            builder.Services.AddIdentityCore<ApplicationUser>(options =>
             {
                 options.Password.RequireDigit = true;
                 options.Password.RequiredLength = 7;
@@ -52,20 +52,13 @@ namespace backend
                 options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.AllowedForNewUsers = true;
-            })
-            .AddEntityFrameworkStores<AppDbContext>()
-            .AddDefaultTokenProviders();
+            }
+            ).AddRoles<ApplicationRole>().AddEntityFrameworkStores<AppDbContext>().AddDefaultTokenProviders();
 
             IConfigurationSection jwtSection = builder.Configuration.GetSection("Jwt");
-            builder.Services.AddAuthentication(options =>
-            {
-                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-                options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
-            })
+            builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
-                options.SaveToken = true;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
@@ -79,14 +72,14 @@ namespace backend
                     ValidAlgorithms = [SecurityAlgorithms.HmacSha256]
                 };
             });
-
-            builder.Services.AddAuthorization();
-
+            // Application Services
             builder.Services.AddScoped<IAuthService, AuthService>();
             builder.Services.AddScoped<ICategoryService, CategoryService>();
             builder.Services.AddScoped<IBranchSearchService, BranchSearchService>();
             builder.Services.AddScoped<IBusinessService, BusinessService>();
             builder.Services.AddHostedService<ArchiveEventsJob>();
+
+            // API & Infrastructure
             builder.Services.AddProblemDetails();
             builder.Services.AddExceptionHandler<ApiExceptionHandler>();
             builder.Services.Configure<RouteOptions>(options =>
@@ -98,9 +91,6 @@ namespace backend
             builder.Services.AddControllers(options =>
             {
                 options.ReturnHttpNotAcceptable = true;
-            }).AddJsonOptions(options =>
-            {
-                options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
             });
             builder.Services.AddCors(options =>
             {
@@ -113,7 +103,7 @@ namespace backend
 
             WebApplication app = builder.Build();
             app.UseExceptionHandler();
-            app.UseStatusCodePages();
+            //app.UseStatusCodePages();
 
             if (app.Environment.IsDevelopment())
             {
