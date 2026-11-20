@@ -53,7 +53,7 @@ namespace backend
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.AllowedForNewUsers = true;
             }
-            ).AddRoles<ApplicationRole>().AddEntityFrameworkStores<AppDbContext>().AddDefaultTokenProviders();
+            ).AddRoles<ApplicationRole>().AddEntityFrameworkStores<AppDbContext>().AddDefaultTokenProviders().AddSignInManager();
 
             IConfigurationSection jwtSection = builder.Configuration.GetSection("Jwt");
             builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
