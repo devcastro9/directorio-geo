@@ -2020,7 +2020,8 @@ CREATE OR REPLACE FUNCTION APP.AUDIT_NEW_TABLES () RETURNS EVENT_TRIGGER LANGUAG
 DECLARE cmd record;
 BEGIN
  FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
-  IF cmd.classid='pg_class'::regclass AND cmd.objsubid=0 THEN
+  IF cmd.classid='pg_class'::regclass AND cmd.objsubid=0
+     AND cmd.schema_name IS DISTINCT FROM 'public' THEN
    PERFORM app.install_audit_triggers(cmd.objid::regclass);
    PERFORM app.install_table_policies(cmd.objid::regclass);
   END IF;
