@@ -3,7 +3,7 @@
 > **Versión:** 1.0  
 > **Fecha:** 2026-11-16  
 > **Stack:** Next.js 16 (App Router), React 19, TypeScript 5, Tailwind CSS 4, Turbopack, pnpm  
-> **Documentación del proyecto:** [README principal](../README.md) | [Contrato API](../REQUERIMIENTOS_API.md) | [Reglas de Agentes](../AGENTS.md)
+> **Documentación del proyecto:** [README principal](../README.md) | [Requerimientos Frontend](../requirements-frontend.md) | [Contrato API](../REQUERIMIENTOS_API.md) | [Reglas de Agentes](../AGENTS.md)
 
 Aplicación web pública y panel de administración para el Directorio Geo de Negocios de Bolivia. Permite a los usuarios buscar sucursales, ver resultados en lista y mapa interactivo, consultar información detallada de comercios y acceder a funciones de gestión de catálogo.
 
