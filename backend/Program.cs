@@ -15,7 +15,6 @@ using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using System;
 using System.Text;
-using System.Text.Json.Serialization;
 
 namespace backend
 {
