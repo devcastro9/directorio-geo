@@ -2,16 +2,20 @@
 -- psql -v ON_ERROR_STOP=1 -f db/init/02_test.sql
 -- Todas las modificaciones, incluidas tablas auxiliares y auditoria, se revierten.
 BEGIN;
-SELECT set_config('cofre.actor_id','00000000-0000-0000-0000-000000000001',true);
 
-CREATE FUNCTION pg_temp.assert_true(p_ok boolean,p_message text) RETURNS void
-LANGUAGE plpgsql AS $$
+SELECT
+	SET_CONFIG(
+		'cofre.actor_id',
+		'00000000-0000-0000-0000-000000000001',
+		TRUE
+	);
+
+CREATE FUNCTION PG_TEMP.ASSERT_TRUE (P_OK BOOLEAN, P_MESSAGE TEXT) RETURNS VOID LANGUAGE PLPGSQL AS $$
 BEGIN
  IF p_ok IS NOT TRUE THEN RAISE EXCEPTION 'Fallo: %',p_message; END IF;
 END $$;
 
-CREATE FUNCTION pg_temp.expect_error(p_sql text,p_message text) RETURNS void
-LANGUAGE plpgsql AS $$
+CREATE FUNCTION PG_TEMP.EXPECT_ERROR (P_SQL TEXT, P_MESSAGE TEXT) RETURNS VOID LANGUAGE PLPGSQL AS $$
 BEGIN
  BEGIN
   EXECUTE p_sql;
@@ -23,59 +27,242 @@ BEGIN
 END $$;
 
 -- Las tablas persistentes del dominio incluyen los seis campos, sin FK de usuario.
-SELECT pg_temp.assert_true(NOT EXISTS(
- SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid=t.relnamespace
- CROSS JOIN (VALUES
-  ('created_by_user_id','uuid'),('updated_by_user_id','uuid'),('deleted_by_user_id','uuid'),
-  ('created_at','timestamptz'),('updated_at','timestamptz'),('deleted_at','timestamptz')
- ) required(name,type_name)
- WHERE n.nspname IN ('catalog','geo','app') AND t.relkind IN ('r','p') AND t.oid NOT IN ('app.audit_log'::regclass,'app.event'::regclass,'app.event_hist'::regclass,'app.daily_metric'::regclass,'app.monthly_metric'::regclass,'app.favorite'::regclass,'app.photo_blob'::regclass)
- AND NOT EXISTS(SELECT 1 FROM pg_attribute a
-  WHERE a.attrelid=t.oid AND a.attname=required.name AND NOT a.attisdropped
-   AND a.atttypid=to_regtype(required.type_name))),
- 'seis columnas de auditoria en tablas operativas; log y analitica tienen su contrato propio');
-SELECT pg_temp.assert_true(NOT EXISTS(
- SELECT 1 FROM pg_constraint fk JOIN pg_class t ON t.oid=fk.conrelid
- JOIN pg_namespace n ON n.oid=t.relnamespace
- JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum=ANY(fk.conkey)
- WHERE n.nspname IN ('catalog','geo','app') AND fk.contype='f'
- AND a.attname IN ('created_by_user_id','updated_by_user_id','deleted_by_user_id','moderated_by_user_id')),
- 'columnas de usuario sin claves foraneas');
-SELECT pg_temp.assert_true(
- EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='app.review'::regclass AND attname='moderated_at' AND atttypid='timestamptz'::regtype)
- AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='app.review'::regclass AND attname='moderated_by_user_id' AND atttypid='uuid'::regtype),
- 'columnas de moderacion de review');
-SELECT pg_temp.assert_true(
- to_regclass('app.owner_identity') IS NULL
- AND to_regclass('catalog.service') IS NULL AND to_regclass('app.branch_service') IS NULL
- AND to_regclass('app.service_price') IS NULL,'tablas reemplazadas ausentes');
-SELECT pg_temp.assert_true(NOT EXISTS(
- SELECT 1 FROM pg_attribute WHERE attrelid='app.business'::regclass AND NOT attisdropped
- AND attname IN ('publication_status','price_level')) AND NOT EXISTS(
- SELECT 1 FROM pg_attribute WHERE attrelid='app.branch'::regclass AND NOT attisdropped
- AND attname IN ('price_level','min_price_bob','max_price_bob','emergency','home_service','accessibility')),
- 'negocio y sucursal sin campos duplicados');
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				PG_CLASS T
+				JOIN PG_NAMESPACE N ON N.OID = T.RELNAMESPACE
+				CROSS JOIN (
+					VALUES
+						('created_by_user_id', 'uuid'),
+						('updated_by_user_id', 'uuid'),
+						('deleted_by_user_id', 'uuid'),
+						('created_at', 'timestamptz'),
+						('updated_at', 'timestamptz'),
+						('deleted_at', 'timestamptz')
+				) REQUIRED (NAME, TYPE_NAME)
+			WHERE
+				N.NSPNAME IN ('catalog', 'geo', 'app')
+				AND T.RELKIND IN ('r', 'p')
+				AND T.OID NOT IN (
+					'app.audit_log'::REGCLASS,
+					'app.event'::REGCLASS,
+					'app.event_hist'::REGCLASS,
+					'app.daily_metric'::REGCLASS,
+					'app.monthly_metric'::REGCLASS,
+					'app.favorite'::REGCLASS,
+					'app.photo_blob'::REGCLASS
+				)
+				AND NOT EXISTS (
+					SELECT
+						1
+					FROM
+						PG_ATTRIBUTE A
+					WHERE
+						A.ATTRELID = T.OID
+						AND A.ATTNAME = REQUIRED.NAME
+						AND NOT A.ATTISDROPPED
+						AND A.ATTTYPID = TO_REGTYPE(REQUIRED.TYPE_NAME)
+				)
+		),
+		'seis columnas de auditoria en tablas operativas; log y analitica tienen su contrato propio'
+	);
 
-SELECT pg_temp.assert_true(to_regclass('catalog.ad_status') IS NULL
- AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='ad_placement' AND column_name='status')
- AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='ad_placement' AND column_name='active' AND data_type='boolean' AND is_nullable='NO'),
- 'anuncios con active booleano sin catalogo de estados');
-SELECT pg_temp.assert_true(to_regclass('app.review_reply') IS NULL
- AND to_regclass('app.holiday') IS NULL AND to_regclass('app.search_synonym') IS NULL
- AND to_regclass('catalog.holiday') IS NOT NULL AND to_regclass('catalog.search_synonym') IS NOT NULL,
- 'respuesta integrada y catalogos reubicados');
-SELECT pg_temp.assert_true((SELECT array_agg(column_name::text ORDER BY ordinal_position)=
- ARRAY['id','entity_schema','entity_table','operation','transaction_id','old_value','new_value','created_by_user_id','created_at']
- FROM information_schema.columns WHERE table_schema='app' AND table_name='audit_log'), 'contrato actual de audit_log');
-SAVEPOINT actor_system_test;
-SELECT set_config('cofre.actor_id','',true);
-INSERT INTO catalog.search_synonym(term,synonym) VALUES('sistema prueba','sin actor');
-SELECT pg_temp.assert_true(EXISTS(SELECT 1 FROM app.audit_log WHERE entity_schema='catalog'
- AND entity_table='search_synonym' AND new_value->>'term'='sistema prueba'
- AND created_by_user_id='00000000-0000-0000-0000-000000000000'), 'actor del sistema sin usuario');
-ROLLBACK TO SAVEPOINT actor_system_test;
-RELEASE SAVEPOINT actor_system_test;
-SELECT set_config('cofre.actor_id','00000000-0000-0000-0000-000000000001',true);
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				PG_CONSTRAINT FK
+				JOIN PG_CLASS T ON T.OID = FK.CONRELID
+				JOIN PG_NAMESPACE N ON N.OID = T.RELNAMESPACE
+				JOIN PG_ATTRIBUTE A ON A.ATTRELID = T.OID
+				AND A.ATTNUM = ANY (FK.CONKEY)
+			WHERE
+				N.NSPNAME IN ('catalog', 'geo', 'app')
+				AND FK.CONTYPE = 'f'
+				AND A.ATTNAME IN (
+					'created_by_user_id',
+					'updated_by_user_id',
+					'deleted_by_user_id',
+					'moderated_by_user_id'
+				)
+		),
+		'columnas de usuario sin claves foraneas'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		EXISTS (
+			SELECT
+				1
+			FROM
+				PG_ATTRIBUTE
+			WHERE
+				ATTRELID = 'app.review'::REGCLASS
+				AND ATTNAME = 'moderated_at'
+				AND ATTTYPID = 'timestamptz'::REGTYPE
+		)
+		AND EXISTS (
+			SELECT
+				1
+			FROM
+				PG_ATTRIBUTE
+			WHERE
+				ATTRELID = 'app.review'::REGCLASS
+				AND ATTNAME = 'moderated_by_user_id'
+				AND ATTTYPID = 'uuid'::REGTYPE
+		),
+		'columnas de moderacion de review'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		TO_REGCLASS('app.owner_identity') IS NULL
+		AND TO_REGCLASS('catalog.service') IS NULL
+		AND TO_REGCLASS('app.branch_service') IS NULL
+		AND TO_REGCLASS('app.service_price') IS NULL,
+		'tablas reemplazadas ausentes'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				PG_ATTRIBUTE
+			WHERE
+				ATTRELID = 'app.business'::REGCLASS
+				AND NOT ATTISDROPPED
+				AND ATTNAME IN ('publication_status', 'price_level')
+		)
+		AND NOT EXISTS (
+			SELECT
+				1
+			FROM
+				PG_ATTRIBUTE
+			WHERE
+				ATTRELID = 'app.branch'::REGCLASS
+				AND NOT ATTISDROPPED
+				AND ATTNAME IN (
+					'price_level',
+					'min_price_bob',
+					'max_price_bob',
+					'emergency',
+					'home_service',
+					'accessibility'
+				)
+		),
+		'negocio y sucursal sin campos duplicados'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		TO_REGCLASS('catalog.ad_status') IS NULL
+		AND NOT EXISTS (
+			SELECT
+				1
+			FROM
+				INFORMATION_SCHEMA.COLUMNS
+			WHERE
+				TABLE_SCHEMA = 'app'
+				AND TABLE_NAME = 'ad_placement'
+				AND COLUMN_NAME = 'status'
+		)
+		AND EXISTS (
+			SELECT
+				1
+			FROM
+				INFORMATION_SCHEMA.COLUMNS
+			WHERE
+				TABLE_SCHEMA = 'app'
+				AND TABLE_NAME = 'ad_placement'
+				AND COLUMN_NAME = 'active'
+				AND DATA_TYPE = 'boolean'
+				AND IS_NULLABLE = 'NO'
+		),
+		'anuncios con active booleano sin catalogo de estados'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		TO_REGCLASS('app.review_reply') IS NULL
+		AND TO_REGCLASS('app.holiday') IS NULL
+		AND TO_REGCLASS('app.search_synonym') IS NULL
+		AND TO_REGCLASS('catalog.holiday') IS NOT NULL
+		AND TO_REGCLASS('catalog.search_synonym') IS NOT NULL,
+		'respuesta integrada y catalogos reubicados'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		(
+			SELECT
+				ARRAY_AGG(
+					COLUMN_NAME::TEXT
+					ORDER BY
+						ORDINAL_POSITION
+				) = ARRAY[
+					'id',
+					'entity_schema',
+					'entity_table',
+					'operation',
+					'transaction_id',
+					'old_value',
+					'new_value',
+					'created_by_user_id',
+					'created_at'
+				]
+			FROM
+				INFORMATION_SCHEMA.COLUMNS
+			WHERE
+				TABLE_SCHEMA = 'app'
+				AND TABLE_NAME = 'audit_log'
+		),
+		'contrato actual de audit_log'
+	);
+
+SAVEPOINT ACTOR_SYSTEM_TEST;
+
+SELECT
+	SET_CONFIG('cofre.actor_id', '', TRUE);
+
+INSERT INTO
+	CATALOG.SEARCH_SYNONYM (TERM, SYNONYM)
+VALUES
+	('sistema prueba', 'sin actor');
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		EXISTS (
+			SELECT
+				1
+			FROM
+				APP.AUDIT_LOG
+			WHERE
+				ENTITY_SCHEMA = 'catalog'
+				AND ENTITY_TABLE = 'search_synonym'
+				AND NEW_VALUE ->> 'term' = 'sistema prueba'
+				AND CREATED_BY_USER_ID = '00000000-0000-0000-0000-000000000000'
+		),
+		'actor del sistema sin usuario'
+	);
+
+ROLLBACK TO SAVEPOINT ACTOR_SYSTEM_TEST;
+
+RELEASE SAVEPOINT ACTOR_SYSTEM_TEST;
+
+SELECT
+	SET_CONFIG(
+		'cofre.actor_id',
+		'00000000-0000-0000-0000-000000000001',
+		TRUE
+	);
 
 -- Catalogos de estados precargados y relaciones que sustituyen las listas CHECK.
 DO $$
@@ -83,7 +270,7 @@ DECLARE r record; actual text[];
 BEGIN
  FOR r IN SELECT * FROM (VALUES
   ('branch_status',ARRAY['active','temporarily_closed','permanently_closed']),
-  ('business_status',ARRAY['draft','pending','published','rejected','archived']),
+  ('business_status',ARRAY['pending','published','rejected','archived']),
   ('subscription_status',ARRAY['pending','active','expired','cancelled']),
   ('subscription_payment_status',ARRAY['pending','paid','failed','refunded','cancelled']),
   ('review_moderation_status',ARRAY['visible','hidden','flagged','deleted'])
@@ -118,72 +305,207 @@ BEGIN
  END LOOP;
 END $$;
 
-SELECT pg_temp.expect_error(
- 'INSERT INTO app.business(trade_name,status) VALUES(''Estado invalido'',''__invalid__'')',
- 'foreign key');
-SELECT pg_temp.expect_error(
- 'INSERT INTO app.business(trade_name,status) VALUES(''Publicacion invalida'',''__invalid__'')',
- 'foreign key');
-SELECT pg_temp.expect_error(
- 'SELECT app.moderate_review(NULL,''__invalid__'',NULL,NULL)',
- 'Estado invalido');
+SELECT
+	PG_TEMP.EXPECT_ERROR (
+		'INSERT INTO app.business(trade_name,status) VALUES(''Estado invalido'',''__invalid__'')',
+		'foreign key'
+	);
+
+SELECT
+	PG_TEMP.EXPECT_ERROR (
+		'INSERT INTO app.business(trade_name,status) VALUES(''Publicacion invalida'',''__invalid__'')',
+		'foreign key'
+	);
+
+SELECT
+	PG_TEMP.EXPECT_ERROR (
+		'SELECT app.moderate_review(NULL,''__invalid__'',NULL,NULL)',
+		'Estado invalido'
+	);
 
 -- El event trigger debe cubrir automaticamente tablas nuevas, sin tocar public.
-CREATE TABLE app.__audit_test_metric (a integer,b integer,label text,PRIMARY KEY(a,b));
-CREATE TABLE public.__audit_test (id integer PRIMARY KEY);
-INSERT INTO app.__audit_test_metric VALUES(1,2,'insert');
-UPDATE app.__audit_test_metric SET label='update' WHERE a=1;
-INSERT INTO app.__audit_test_metric VALUES(1,2,'upsert')
-ON CONFLICT(a,b) DO UPDATE SET label=excluded.label;
-MERGE INTO app.__audit_test_metric t USING (VALUES(1,2,'merge')) s(a,b,label)
-ON t.a=s.a AND t.b=s.b WHEN MATCHED THEN UPDATE SET label=s.label;
-DELETE FROM app.__audit_test_metric WHERE a=1;
-INSERT INTO app.__audit_test_metric VALUES(3,4,'truncate');
-TRUNCATE app.__audit_test_metric;
-INSERT INTO public.__audit_test VALUES(1);
+CREATE TABLE APP.__AUDIT_TEST_METRIC (
+	A INTEGER,
+	B INTEGER,
+	LABEL TEXT,
+	PRIMARY KEY (A, B)
+);
 
-SELECT pg_temp.assert_true(
- (SELECT count(*)=7 FROM app.audit_log WHERE entity_table='__audit_test_metric' AND entity_schema='app'),
- 'auditoria de INSERT, UPDATE, UPSERT, MERGE, DELETE y TRUNCATE');
-SELECT pg_temp.assert_true(
- EXISTS(SELECT 1 FROM app.audit_log WHERE entity_table='__audit_test_metric' AND operation='T'
- AND old_value->>'label'='truncate' AND old_value @> '{"a":3,"b":4}'::jsonb),
- 'instantanea previa de TRUNCATE y clave compuesta');
-SELECT pg_temp.assert_true(
- NOT EXISTS(SELECT 1 FROM app.audit_log WHERE entity_table='__audit_test' AND entity_schema='public'),
- 'exclusion de public');
-SELECT pg_temp.assert_true(
- NOT EXISTS (
- SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
- WHERE n.nspname IN ('app','geo','catalog') AND c.relkind IN ('r','p')
- AND c.oid NOT IN ('app.audit_log'::regclass,'app.event'::regclass,'app.event_hist'::regclass,
- 'app.daily_metric'::regclass,'app.monthly_metric'::regclass,'app.photo_blob'::regclass) AND NOT EXISTS(
- SELECT 1 FROM pg_trigger t WHERE t.tgrelid=c.oid AND t.tgname='audit_capture_row' AND t.tgenabled='O')),
- 'cobertura de tablas del dominio salvo analitica y photo_blob');
-SELECT pg_temp.expect_error(
- 'UPDATE app.audit_log SET entity_table=''alterado'' WHERE id=(SELECT min(id) FROM app.audit_log)',
- 'inmutable');
-SELECT pg_temp.expect_error('TRUNCATE app.audit_log','inmutable');
-SELECT pg_temp.expect_error(
- 'INSERT INTO app.audit_log(entity_schema,entity_table,operation) VALUES(''app'',''falso'',''I'')',
- 'inmutable');
+CREATE TABLE PUBLIC.__AUDIT_TEST (ID INTEGER PRIMARY KEY);
+
+INSERT INTO
+	APP.__AUDIT_TEST_METRIC
+VALUES
+	(1, 2, 'insert');
+
+UPDATE APP.__AUDIT_TEST_METRIC
+SET
+	LABEL = 'update'
+WHERE
+	A = 1;
+
+INSERT INTO
+	APP.__AUDIT_TEST_METRIC
+VALUES
+	(1, 2, 'upsert')
+ON CONFLICT (A, B) DO UPDATE
+SET
+	LABEL = EXCLUDED.LABEL;
+
+MERGE INTO APP.__AUDIT_TEST_METRIC T USING (
+	VALUES
+		(1, 2, 'merge')
+) S (A, B, LABEL) ON T.A = S.A
+AND T.B = S.B WHEN MATCHED THEN
+UPDATE
+SET
+	LABEL = S.LABEL;
+
+DELETE FROM APP.__AUDIT_TEST_METRIC
+WHERE
+	A = 1;
+
+INSERT INTO
+	APP.__AUDIT_TEST_METRIC
+VALUES
+	(3, 4, 'truncate');
+
+TRUNCATE APP.__AUDIT_TEST_METRIC;
+
+INSERT INTO
+	PUBLIC.__AUDIT_TEST
+VALUES
+	(1);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		(
+			SELECT
+				COUNT(*) = 7
+			FROM
+				APP.AUDIT_LOG
+			WHERE
+				ENTITY_TABLE = '__audit_test_metric'
+				AND ENTITY_SCHEMA = 'app'
+		),
+		'auditoria de INSERT, UPDATE, UPSERT, MERGE, DELETE y TRUNCATE'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		EXISTS (
+			SELECT
+				1
+			FROM
+				APP.AUDIT_LOG
+			WHERE
+				ENTITY_TABLE = '__audit_test_metric'
+				AND OPERATION = 'T'
+				AND OLD_VALUE ->> 'label' = 'truncate'
+				AND OLD_VALUE @> '{"a":3,"b":4}'::JSONB
+		),
+		'instantanea previa de TRUNCATE y clave compuesta'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				APP.AUDIT_LOG
+			WHERE
+				ENTITY_TABLE = '__audit_test'
+				AND ENTITY_SCHEMA = 'public'
+		),
+		'exclusion de public'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				PG_CLASS C
+				JOIN PG_NAMESPACE N ON N.OID = C.RELNAMESPACE
+			WHERE
+				N.NSPNAME IN ('app', 'geo', 'catalog')
+				AND C.RELKIND IN ('r', 'p')
+				AND C.OID NOT IN (
+					'app.audit_log'::REGCLASS,
+					'app.event'::REGCLASS,
+					'app.event_hist'::REGCLASS,
+					'app.daily_metric'::REGCLASS,
+					'app.monthly_metric'::REGCLASS,
+					'app.photo_blob'::REGCLASS
+				)
+				AND NOT EXISTS (
+					SELECT
+						1
+					FROM
+						PG_TRIGGER T
+					WHERE
+						T.TGRELID = C.OID
+						AND T.TGNAME = 'audit_capture_row'
+						AND T.TGENABLED = 'O'
+				)
+		),
+		'cobertura de tablas del dominio salvo analitica y photo_blob'
+	);
+
+SELECT
+	PG_TEMP.EXPECT_ERROR (
+		'UPDATE app.audit_log SET entity_table=''alterado'' WHERE id=(SELECT min(id) FROM app.audit_log)',
+		'inmutable'
+	);
+
+SELECT
+	PG_TEMP.EXPECT_ERROR ('TRUNCATE app.audit_log', 'inmutable');
+
+SELECT
+	PG_TEMP.EXPECT_ERROR (
+		'INSERT INTO app.audit_log(entity_schema,entity_table,operation) VALUES(''app'',''falso'',''I'')',
+		'inmutable'
+	);
 
 -- Favorite representa presencia/ausencia, sin estado de borrado logico.
-SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM pg_attribute
- WHERE attrelid='app.favorite'::regclass AND NOT attisdropped AND attname='active'),
- 'favorite sin columna active');
-SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM pg_trigger
- WHERE tgrelid='app.favorite'::regclass AND tgfoid='app.touch()'::regprocedure),
- 'favorite sin sellado de baja logica');
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				PG_ATTRIBUTE
+			WHERE
+				ATTRELID = 'app.favorite'::REGCLASS
+				AND NOT ATTISDROPPED
+				AND ATTNAME = 'active'
+		),
+		'favorite sin columna active'
+	);
 
--- Cobertura de la politica en todas las tablas operativas y de Identity.
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				PG_TRIGGER
+			WHERE
+				TGRELID = 'app.favorite'::REGCLASS
+				AND TGFOID = 'app.touch()'::REGPROCEDURE
+		),
+		'favorite sin sellado de baja logica'
+	);
+
+-- Cobertura de la politica en todas las tablas operativas.
 DO $$
 DECLARE r record;
 BEGIN
  FOR r IN SELECT c.oid,n.nspname,c.relname FROM pg_class c
  JOIN pg_namespace n ON n.oid=c.relnamespace
- WHERE c.relkind IN ('r','p') AND (n.nspname IN ('app','catalog','geo') OR
-  (n.nspname='public' AND (c.relname LIKE 'AspNet%' OR c.relname='__EFMigrationsHistory')))
+ WHERE c.relkind IN ('r','p') AND n.nspname IN ('app','catalog','geo')
  AND NOT (n.nspname='app' AND (c.relname IN ('event','event_hist','branch_photo','business_photo','favorite')
   OR right(c.relname,7)='_metric'))
  LOOP
@@ -196,12 +518,53 @@ BEGIN
  END LOOP;
 END $$;
 
-SELECT pg_temp.expect_error('TRUNCATE public.__audit_test','Eliminacion fisica');
-SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM pg_trigger
- WHERE tgrelid='public.spatial_ref_sys'::regclass AND NOT tgisinternal
- AND tgfoid='app.reject_physical_delete()'::regprocedure),'objetos de extension intactos');
-SELECT pg_temp.assert_true((SELECT count(*)=5 FROM pg_extension
- WHERE extname IN ('postgis','pg_trgm','unaccent','btree_gist','pgrouting')),'cinco extensiones conservadas');
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				PG_TRIGGER
+			WHERE
+				TGRELID = 'public.__audit_test'::REGCLASS
+				AND TGFOID = 'app.reject_physical_delete()'::REGPROCEDURE
+		),
+		'tablas nuevas de public sin politica de borrado'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				PG_TRIGGER
+			WHERE
+				TGRELID = 'public.spatial_ref_sys'::REGCLASS
+				AND NOT TGISINTERNAL
+				AND TGFOID = 'app.reject_physical_delete()'::REGPROCEDURE
+		),
+		'objetos de extension intactos'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		(
+			SELECT
+				COUNT(*) = 5
+			FROM
+				PG_EXTENSION
+			WHERE
+				EXTNAME IN (
+					'postgis',
+					'pg_trgm',
+					'unaccent',
+					'btree_gist',
+					'pgrouting'
+				)
+		),
+		'cinco extensiones conservadas'
+	);
 
 -- Cambiar el tipo de un territorio no puede invalidar sus hijos.
 DO $$
@@ -215,55 +578,229 @@ BEGIN
 END $$;
 
 -- Una tabla nueva recibe proteccion y metadatos sin instalacion manual.
-CREATE TABLE app.__policy_test (
- id int PRIMARY KEY, active boolean NOT NULL DEFAULT true,
- created_at timestamptz NOT NULL DEFAULT now(), created_by_user_id uuid DEFAULT app.actor(),
- updated_at timestamptz, updated_by_user_id uuid, deleted_at timestamptz, deleted_by_user_id uuid);
-INSERT INTO app.__policy_test(id) VALUES(1);
-UPDATE app.__policy_test SET id=id WHERE id=1;
-CREATE TEMP TABLE audit_snapshot AS SELECT * FROM app.__policy_test;
-UPDATE app.__policy_test SET active=false WHERE id=1;
-SELECT pg_temp.assert_true((SELECT p.deleted_at IS NOT NULL AND p.deleted_by_user_id=app.actor()
- AND p.updated_at IS NOT DISTINCT FROM o.updated_at
- AND p.updated_by_user_id IS NOT DISTINCT FROM o.updated_by_user_id
- FROM app.__policy_test p CROSS JOIN audit_snapshot o),'baja solo sella deleted, conserva updated');
-UPDATE app.__policy_test SET id=id WHERE id=1;
-SELECT pg_temp.assert_true((SELECT updated_at IS NOT NULL AND deleted_at IS NOT NULL
- AND updated_by_user_id=app.actor() FROM app.__policy_test),'editar una baja sella updated');
-UPDATE app.__policy_test SET active=true WHERE id=1;
-SELECT pg_temp.assert_true((SELECT deleted_at IS NULL AND deleted_by_user_id IS NULL
- AND updated_by_user_id=app.actor() FROM app.__policy_test),'restauracion sella updated y limpia baja');
-INSERT INTO app.__policy_test(id,active) VALUES(2,false);
-SELECT pg_temp.assert_true((SELECT deleted_at IS NOT NULL AND deleted_by_user_id=app.actor()
- AND updated_at IS NULL FROM app.__policy_test WHERE id=2),'insertar inactivo audita baja');
-SELECT pg_temp.expect_error('DELETE FROM app.__policy_test WHERE id=1','Eliminacion fisica');
-SELECT pg_temp.expect_error('TRUNCATE app.__policy_test','Eliminacion fisica');
-SELECT pg_temp.expect_error('TRUNCATE app.branch CASCADE','Eliminacion fisica');
+CREATE TABLE APP.__POLICY_TEST (
+	ID INT PRIMARY KEY,
+	ACTIVE BOOLEAN NOT NULL DEFAULT TRUE,
+	CREATED_AT TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	CREATED_BY_USER_ID UUID DEFAULT APP.ACTOR (),
+	UPDATED_AT TIMESTAMPTZ,
+	UPDATED_BY_USER_ID UUID,
+	DELETED_AT TIMESTAMPTZ,
+	DELETED_BY_USER_ID UUID
+);
+
+INSERT INTO
+	APP.__POLICY_TEST (ID)
+VALUES
+	(1);
+
+UPDATE APP.__POLICY_TEST
+SET
+	ID = ID
+WHERE
+	ID = 1;
+
+CREATE TEMP TABLE AUDIT_SNAPSHOT AS
+SELECT
+	*
+FROM
+	APP.__POLICY_TEST;
+
+UPDATE APP.__POLICY_TEST
+SET
+	ACTIVE = FALSE
+WHERE
+	ID = 1;
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		(
+			SELECT
+				P.DELETED_AT IS NOT NULL
+				AND P.DELETED_BY_USER_ID = APP.ACTOR ()
+				AND P.UPDATED_AT IS NOT DISTINCT FROM O.UPDATED_AT
+				AND P.UPDATED_BY_USER_ID IS NOT DISTINCT FROM O.UPDATED_BY_USER_ID
+			FROM
+				APP.__POLICY_TEST P
+				CROSS JOIN AUDIT_SNAPSHOT O
+		),
+		'baja solo sella deleted, conserva updated'
+	);
+
+UPDATE APP.__POLICY_TEST
+SET
+	ID = ID
+WHERE
+	ID = 1;
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		(
+			SELECT
+				UPDATED_AT IS NOT NULL
+				AND DELETED_AT IS NOT NULL
+				AND UPDATED_BY_USER_ID = APP.ACTOR ()
+			FROM
+				APP.__POLICY_TEST
+		),
+		'editar una baja sella updated'
+	);
+
+UPDATE APP.__POLICY_TEST
+SET
+	ACTIVE = TRUE
+WHERE
+	ID = 1;
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		(
+			SELECT
+				DELETED_AT IS NULL
+				AND DELETED_BY_USER_ID IS NULL
+				AND UPDATED_BY_USER_ID = APP.ACTOR ()
+			FROM
+				APP.__POLICY_TEST
+		),
+		'restauracion sella updated y limpia baja'
+	);
+
+INSERT INTO
+	APP.__POLICY_TEST (ID, ACTIVE)
+VALUES
+	(2, FALSE);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		(
+			SELECT
+				DELETED_AT IS NOT NULL
+				AND DELETED_BY_USER_ID = APP.ACTOR ()
+				AND UPDATED_AT IS NULL
+			FROM
+				APP.__POLICY_TEST
+			WHERE
+				ID = 2
+		),
+		'insertar inactivo audita baja'
+	);
+
+SELECT
+	PG_TEMP.EXPECT_ERROR (
+		'DELETE FROM app.__policy_test WHERE id=1',
+		'Eliminacion fisica'
+	);
+
+SELECT
+	PG_TEMP.EXPECT_ERROR (
+		'TRUNCATE app.__policy_test',
+		'Eliminacion fisica'
+	);
+
+SELECT
+	PG_TEMP.EXPECT_ERROR (
+		'TRUNCATE app.branch CASCADE',
+		'Eliminacion fisica'
+	);
 
 -- Ninguna tabla de public recibe captura ni sellado de auditoria, incluido Identity.
-SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM pg_trigger tr
- JOIN pg_class c ON c.oid=tr.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
- WHERE n.nspname='public' AND tr.tgfoid IN
- ('app.touch()'::regprocedure,'app.capture_audit()'::regprocedure,
-  'app.capture_truncate_audit()'::regprocedure)),'public e Identity sin triggers de auditoria');
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				PG_TRIGGER TR
+				JOIN PG_CLASS C ON C.OID = TR.TGRELID
+				JOIN PG_NAMESPACE N ON N.OID = C.RELNAMESPACE
+			WHERE
+				N.NSPNAME = 'public'
+				AND TR.TGFOID IN (
+					'app.touch()'::REGPROCEDURE,
+					'app.capture_audit()'::REGPROCEDURE,
+					'app.capture_truncate_audit()'::REGPROCEDURE
+				)
+		),
+		'public e Identity sin triggers de auditoria'
+	);
+
 -- Tambien se excluyen tablas futuras de public aunque tengan las seis columnas.
-CREATE TABLE public.__metadata_test (LIKE app.__policy_test INCLUDING DEFAULTS);
-INSERT INTO public.__metadata_test(id) VALUES(1);
-UPDATE public.__metadata_test SET active=false WHERE id=1;
-SELECT pg_temp.assert_true((SELECT updated_at IS NULL AND deleted_at IS NULL
- AND updated_by_user_id IS NULL AND deleted_by_user_id IS NULL
- FROM public.__metadata_test),'public no sella columnas de auditoria');
-SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM app.audit_log WHERE entity_schema='public'),
- 'ninguna captura de public');
+CREATE TABLE PUBLIC.__METADATA_TEST (LIKE APP.__POLICY_TEST INCLUDING DEFAULTS);
+
+INSERT INTO
+	PUBLIC.__METADATA_TEST (ID)
+VALUES
+	(1);
+
+UPDATE PUBLIC.__METADATA_TEST
+SET
+	ACTIVE = FALSE
+WHERE
+	ID = 1;
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		(
+			SELECT
+				UPDATED_AT IS NULL
+				AND DELETED_AT IS NULL
+				AND UPDATED_BY_USER_ID IS NULL
+				AND DELETED_BY_USER_ID IS NULL
+			FROM
+				PUBLIC.__METADATA_TEST
+		),
+		'public no sella columnas de auditoria'
+	);
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		NOT EXISTS (
+			SELECT
+				1
+			FROM
+				APP.AUDIT_LOG
+			WHERE
+				ENTITY_SCHEMA = 'public'
+		),
+		'ninguna captura de public'
+	);
 
 -- Una definicion inactiva permite dar de baja sus valores historicos.
-INSERT INTO catalog.parameter_definition(code,description,data_type,default_value)
-VALUES('test.retired','Prueba de baja','integer','1');
-INSERT INTO catalog.parameter_value(code,value) VALUES('test.retired','2');
-UPDATE catalog.parameter_definition SET active=false WHERE code='test.retired';
-UPDATE catalog.parameter_value SET active=false WHERE code='test.retired';
-SELECT pg_temp.assert_true((SELECT deleted_at IS NOT NULL AND deleted_by_user_id=app.actor()
- FROM catalog.parameter_value WHERE code='test.retired'),'baja con definicion inactiva');
+INSERT INTO
+	CATALOG.PARAMETER_DEFINITION (CODE, DESCRIPTION, DATA_TYPE, DEFAULT_VALUE)
+VALUES
+	('test.retired', 'Prueba de baja', 'integer', '1');
+
+INSERT INTO
+	CATALOG.PARAMETER_VALUE (CODE, VALUE)
+VALUES
+	('test.retired', '2');
+
+UPDATE CATALOG.PARAMETER_DEFINITION
+SET
+	ACTIVE = FALSE
+WHERE
+	CODE = 'test.retired';
+
+UPDATE CATALOG.PARAMETER_VALUE
+SET
+	ACTIVE = FALSE
+WHERE
+	CODE = 'test.retired';
+
+SELECT
+	PG_TEMP.ASSERT_TRUE (
+		(
+			SELECT
+				DELETED_AT IS NOT NULL
+				AND DELETED_BY_USER_ID = APP.ACTOR ()
+			FROM
+				CATALOG.PARAMETER_VALUE
+			WHERE
+				CODE = 'test.retired'
+		),
+		'baja con definicion inactiva'
+	);
 
 DO $$
 DECLARE
