@@ -2205,56 +2205,13 @@ FROM
 -- Solo event/event_hist, branch_photo/business_photo, favorite y *_metric admiten borrado fisico.
 -- photo_blob y audit_log mantienen su contrato inmutable.
 -- Datos de configuracion indispensables.
-INSERT INTO
-	CATALOG.PARAMETER_DEFINITION (
-		CODE,
-		DESCRIPTION,
-		DATA_TYPE,
-		DEFAULT_VALUE,
-		MIN_NUMBER,
-		MAX_NUMBER
-	)
-VALUES
-	(
-		'photo.max_bytes',
-		'Tamano maximo de imagen BYTEA',
-		'integer',
-		'5242880',
-		1,
-		52428800
-	),
-	(
-		'search.default_radius_m',
-		'Radio predeterminado en metros',
-		'integer',
-		'10000',
-		1,
-		50000
-	),
-	(
-		'search.default_limit',
-		'Limite por pagina',
-		'integer',
-		'20',
-		1,
-		100
-	),
-	(
-		'review.moderation_post',
-		'Moderacion posterior',
-		'boolean',
-		'true',
-		NULL,
-		NULL
-	),
-	(
-		'analytics.archive_after_days',
-		'Dias para traslado a historico',
-		'integer',
-		'7',
-		1,
-		365
-	);
+INSERT INTO catalog.parameter_definition (code,description,data_type,default_value,min_number,max_number,allowed_values,active,created_by_user_id,updated_by_user_id,deleted_by_user_id,created_at,updated_at,deleted_at) VALUES
+	 ('photo.max_bytes','Tamano maximo de imagen BYTEA','integer','5242880',1,52428800,NULL,true,'00000000-0000-0000-0000-000000000000'::uuid,NULL,NULL,'2026-11-22 21:35:28.649293-04',NULL,NULL),
+	 ('search.default_limit','Limite por pagina','integer','20',1,100,NULL,true,'00000000-0000-0000-0000-000000000000'::uuid,NULL,NULL,'2026-11-22 21:35:28.649293-04',NULL,NULL),
+	 ('review.moderation_post','Moderacion posterior','boolean','true',NULL,NULL,NULL,true,'00000000-0000-0000-0000-000000000000'::uuid,NULL,NULL,'2026-11-22 21:35:28.649293-04',NULL,NULL),
+	 ('analytics.archive_after_days','Dias para traslado a historico','integer','7',1,365,NULL,true,'00000000-0000-0000-0000-000000000000'::uuid,NULL,NULL,'2026-11-22 21:35:28.649293-04',NULL,NULL),
+	 ('search.default_radius_m','Radio predeterminado en metros','integer','500',1,50000,NULL,true,'00000000-0000-0000-0000-000000000000'::uuid,'00000000-0000-0000-0000-000000000000'::uuid,NULL,'2026-11-22 21:35:28.649293-04','2026-11-22 21:40:04.649587-04',NULL),
+	 ('auth.jwt_duration','Duracion del JWT en minutos','integer','15',5,24,NULL,true,'00000000-0000-0000-0000-000000000000'::uuid,'00000000-0000-0000-0000-000000000000'::uuid,NULL,'2026-11-22 21:40:04.63246-04','2026-11-22 21:40:35.67716-04',NULL);
 
 INSERT INTO
 	CATALOG.CATEGORY (CODE, NAME, SORT_ORDER)
