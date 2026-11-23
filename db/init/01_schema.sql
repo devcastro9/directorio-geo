@@ -1431,10 +1431,12 @@ CREATE OR REPLACE FUNCTION APP.FIND_BRANCHES (
 	P_RADIUS_M INT DEFAULT NULL,
 	P_BBOX GEOGRAPHY DEFAULT NULL,
 	P_CATEGORY_ID UUID DEFAULT NULL,
+	P_TERRITORY_ID UUID DEFAULT NULL,
 	P_OPEN_NOW BOOLEAN DEFAULT FALSE,
+	P_MIN_PRICE NUMERIC DEFAULT NULL,
+	P_MAX_PRICE NUMERIC DEFAULT NULL,
 	P_LIMIT INT DEFAULT CATALOG.PARAM_INT ('search.default_limit'),
-	P_OFFSET INT DEFAULT 0,
-	P_TERRITORY_ID UUID DEFAULT NULL
+	P_OFFSET INT DEFAULT 0
 ) RETURNS TABLE (
 	BRANCH_ID UUID,
 	BUSINESS_ID UUID,
@@ -1444,11 +1446,14 @@ CREATE OR REPLACE FUNCTION APP.FIND_BRANCHES (
 	RATING NUMERIC,
 	REVIEW_COUNT BIGINT,
 	IS_SPONSORED BOOLEAN,
+	MIN_PRICE_BOB NUMERIC,
+	MAX_PRICE_BOB NUMERIC,
 	LOCATION GEOGRAPHY,
 	BRANCH_STATUS VARCHAR(30),
-	BUSINESS_STATUS VARCHAR(30)
+	BUSINESS_STATUS VARCHAR(30),
+	TOTAL_COUNT BIGINT
 ) LANGUAGE PLPGSQL STABLE AS $$
-DECLARE q text := nullif(app.normalize(btrim(coalesce(p_text,''))),''); cg geography;
+DECLARE q text := nullif(app.normalize(btrim(coalesce(p_text,''))),'');
  radius_m integer;
 BEGIN
  IF p_limit IS NULL OR p_offset IS NULL OR p_limit NOT BETWEEN 1 AND 100 OR p_offset NOT BETWEEN 0 AND 2000 THEN
@@ -1457,6 +1462,9 @@ BEGIN
  IF p_radius_m IS NOT NULL AND (p_center IS NULL OR p_radius_m NOT BETWEEN 1 AND 50000) THEN
   RAISE EXCEPTION 'Radio invalido'; END IF;
  IF p_open_now IS NULL THEN RAISE EXCEPTION 'Filtro de apertura requerido'; END IF;
+ IF (p_min_price IS NOT NULL AND p_min_price<0) OR (p_max_price IS NOT NULL AND p_max_price<0)
+    OR (p_min_price IS NOT NULL AND p_max_price IS NOT NULL AND p_min_price>p_max_price) THEN
+  RAISE EXCEPTION 'Rango de precio invalido'; END IF;
  IF p_center IS NOT NULL AND (ST_SRID(p_center::geometry)<>4326 OR ST_GeometryType(p_center::geometry)<>'ST_Point'
   OR ST_IsEmpty(p_center::geometry) OR ST_NDims(p_center::geometry)<>2) THEN
   RAISE EXCEPTION 'Centro debe ser Point SRID 4326'; END IF;
@@ -1466,55 +1474,70 @@ BEGIN
   OR ST_NDims(p_bbox::geometry)<>2
   OR NOT ST_Equals(p_bbox::geometry,ST_Envelope(p_bbox::geometry)))
  THEN RAISE EXCEPTION 'BBox debe ser un rectangulo Polygon valido y no vacio, SRID 4326'; END IF;
- cg:=p_center;
- radius_m:=CASE WHEN cg IS NULL THEN NULL
+ radius_m:=CASE WHEN p_center IS NULL THEN NULL
   ELSE coalesce(p_radius_m,catalog.param_int('search.default_radius_m')) END;
- IF cg IS NOT NULL AND (radius_m IS NULL OR radius_m NOT BETWEEN 1 AND 50000)
+ IF p_center IS NOT NULL AND (radius_m IS NULL OR radius_m NOT BETWEEN 1 AND 50000)
  THEN RAISE EXCEPTION 'Radio predeterminado invalido'; END IF;
+
  RETURN QUERY
  WITH RECURSIVE cats(id) AS (
- SELECT p_category_id WHERE p_category_id IS NOT NULL
- UNION ALL SELECT ci.id FROM catalog.category ci JOIN cats c ON ci.parent_id=c.id WHERE ci.active
+  SELECT p_category_id WHERE p_category_id IS NOT NULL
+  UNION ALL SELECT ci.id FROM catalog.category ci JOIN cats c ON ci.parent_id=c.id WHERE ci.active
  ), territories(id) AS (
- SELECT t.id FROM geo.territory t
- WHERE t.id=p_territory_id AND t.active
- UNION ALL
- SELECT child.id FROM geo.territory child
- JOIN territories parent ON child.parent_id=parent.id
- WHERE child.active
+  SELECT t.id FROM geo.territory t WHERE t.id=p_territory_id AND t.active
+  UNION ALL
+  SELECT child.id FROM geo.territory child JOIN territories parent ON child.parent_id=parent.id
+  WHERE child.active
  ), synonyms AS (
- SELECT q AS term WHERE q IS NOT NULL
- UNION ALL SELECT app.normalize(ss.synonym) FROM CATALOG.search_synonym ss
- WHERE ss.active AND ss.locale LIKE 'es%' AND app.normalize(ss.term)=q
+  SELECT q AS term WHERE q IS NOT NULL
+  UNION ALL SELECT app.normalize(ss.synonym) FROM catalog.search_synonym ss
+  WHERE ss.active AND ss.locale LIKE 'es%' AND app.normalize(ss.term)=q
  ), candidates AS (
- SELECT pb.branch_id,pb.business_id,pb.trade_name,pb.branch_name,pb.location,pb.branch_status,pb.business_status,
-  CASE WHEN cg IS NULL THEN NULL ELSE ST_Distance(pb.location,cg) END AS dist
- FROM app.published_branch pb
- WHERE (p_bbox IS NULL OR ST_Intersects(pb.location,p_bbox))
- AND (radius_m IS NULL OR ST_DWithin(pb.location,cg,radius_m))
- AND (p_territory_id IS NULL OR EXISTS (
-   SELECT 1 FROM app.branch branch JOIN territories t ON t.id=branch.territory_id
-   WHERE branch.id=pb.branch_id
- ))
- AND (p_category_id IS NULL OR EXISTS(SELECT 1 FROM app.branch_category bc JOIN cats c ON c.id=bc.category_id
- WHERE bc.branch_id=pb.branch_id AND bc.active))
- AND (q IS NULL OR EXISTS(SELECT 1 FROM synonyms sy WHERE
-   app.normalize(pb.trade_name) % sy.term OR app.normalize(pb.branch_name) % sy.term
-   OR app.normalize(pb.trade_name) LIKE '%'||sy.term||'%'
-   OR app.normalize(pb.branch_name) LIKE '%'||sy.term||'%'))
- AND (NOT p_open_now OR app.is_open_at(pb.branch_id,now()))
+  SELECT pb.branch_id,pb.business_id,pb.trade_name,pb.branch_name,pb.location,
+   pb.branch_status,pb.business_status,
+   CASE WHEN p_center IS NULL THEN NULL ELSE ST_Distance(pb.location,p_center) END AS dist
+  FROM app.published_branch pb
+  WHERE (p_bbox IS NULL OR ST_Intersects(pb.location,p_bbox))
+  AND (radius_m IS NULL OR ST_DWithin(pb.location,p_center,radius_m))
+  AND (p_territory_id IS NULL OR EXISTS (
+    SELECT 1 FROM app.branch br JOIN territories t ON t.id=br.territory_id WHERE br.id=pb.branch_id))
+  AND (p_category_id IS NULL OR EXISTS (
+    SELECT 1 FROM app.branch_category bc JOIN cats c ON c.id=bc.category_id
+    WHERE bc.branch_id=pb.branch_id AND bc.active))
+  AND (q IS NULL OR EXISTS (SELECT 1 FROM synonyms sy WHERE
+    app.normalize(pb.trade_name) % sy.term OR app.normalize(pb.branch_name) % sy.term
+    OR app.normalize(pb.trade_name) LIKE '%'||sy.term||'%'
+    OR app.normalize(pb.branch_name) LIKE '%'||sy.term||'%'))
+  AND (p_min_price IS NULL AND p_max_price IS NULL OR EXISTS (
+    SELECT 1 FROM app.service_product_price pp
+    WHERE pp.branch_id=pb.branch_id AND pp.active
+     AND (p_min_price IS NULL OR pp.amount_max_bob>=p_min_price)
+     AND (p_max_price IS NULL OR pp.amount_min_bob<=p_max_price)))
+  AND (NOT p_open_now OR app.is_open_at(pb.branch_id,now()))
+ ), ranked AS (
+  SELECT c.branch_id,c.business_id,c.trade_name,c.branch_name,c.dist,c.location,
+   c.branch_status,c.business_status,
+   CASE WHEN r.n=0 THEN NULL ELSE r.avg_rating END AS rt,
+   r.n AS rn,
+   EXISTS (SELECT 1 FROM app.active_ads(now()) ads WHERE ads.branch_id=c.branch_id) AS sp,
+   pr.pmin,pr.pmax
+  FROM candidates c
+  LEFT JOIN LATERAL (
+   SELECT round(avg(rv.rating)::numeric,2) AS avg_rating,count(*) AS n FROM app.review rv
+   WHERE rv.branch_id=c.branch_id AND rv.moderation_status='visible') r ON true
+  LEFT JOIN LATERAL (
+   SELECT min(pp.amount_min_bob) AS pmin,max(pp.amount_max_bob) AS pmax
+   FROM app.service_product_price pp WHERE pp.branch_id=c.branch_id AND pp.active) pr ON true
+  ORDER BY sp DESC,
+   CASE WHEN q IS NOT NULL THEN similarity(app.normalize(c.trade_name),q) ELSE 0 END DESC,
+   c.dist ASC NULLS LAST,c.branch_id
+  LIMIT p_limit OFFSET p_offset
  )
- SELECT c.branch_id,c.business_id,c.trade_name,c.branch_name,c.dist,
-  coalesce(r.avg_rating,0)::numeric(3,2),coalesce(r.n,0),
-  EXISTS(SELECT 1 FROM app.active_ads(now()) ads WHERE ads.branch_id=c.branch_id) AS sponsored,
-  c.location,c.branch_status,c.business_status
- FROM candidates c LEFT JOIN LATERAL(
-  SELECT round(avg(rv.rating)::numeric,2) AS avg_rating,count(*) AS n FROM app.review rv
-  WHERE rv.branch_id=c.branch_id AND rv.moderation_status='visible') r ON true
- ORDER BY sponsored DESC,
- CASE WHEN q IS NOT NULL THEN similarity(app.normalize(c.trade_name),q) ELSE 0 END DESC,
- c.dist ASC NULLS LAST,c.branch_id
- LIMIT p_limit OFFSET p_offset;
+ SELECT rk.branch_id,rk.business_id,rk.trade_name,rk.branch_name,rk.dist,rk.rt,rk.rn,rk.sp,
+  rk.pmin,rk.pmax,rk.location,rk.branch_status,rk.business_status,
+  tot.total
+ FROM (SELECT count(*) AS total FROM candidates) tot
+ LEFT JOIN ranked rk ON true;
 END $$;
 
 CREATE OR REPLACE FUNCTION APP.AUTOCOMPLETE (P_PREFIX TEXT, P_LIMIT INTEGER DEFAULT 12) RETURNS TABLE (SUGGESTION TEXT, SUGGESTION_TYPE TEXT) LANGUAGE SQL STABLE AS $$
