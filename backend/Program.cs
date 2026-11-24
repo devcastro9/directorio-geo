@@ -48,7 +48,7 @@ namespace backend
                 options.Password.RequireUppercase = true;
                 options.Password.RequireLowercase = true;
                 options.User.RequireUniqueEmail = true;
-                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(10);
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.AllowedForNewUsers = true;
             }
