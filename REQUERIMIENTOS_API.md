@@ -1,146 +1,176 @@
 # CONTRATO FUNCIONAL Y HTTP — DIRECTORIO GEO DE NEGOCIOS
 
-Versión 1.0 | Fecha: 2026-11-16 | Base: /api/v1
+Base: /api/v1
 Estado: especificación normativa para desarrollar; incluye módulo de Categorías implementado.
 
 ## 0. AUTORIDAD, ALCANCE Y STACK
 
+Reemplaza íntegramente v1.0. Define entradas, salidas, permisos y reglas.
+`Funcionalidades_Directorio_Geo_SQL_v1_3.md` establece valor y aceptación;
+`README.md` describe instalación y estado actual. Los ejemplos son instancias de los
+tipos definidos, no contratos alternos.
 
-Reemplaza íntegramente los contratos anteriores. Define entradas, salidas,
-permisos y reglas. [Funcionalidades_Directorio_Geo_SQL_v1_3.md](Funcionalidades_Directorio_Geo_SQL_v1_3.md) establece el valor
-y aceptación; [README.md](README.md) describe instalación y estado actual. Los ejemplos son
-instancias de los tipos definidos, no contratos alternos.
+**El SQL es la fuente de verdad del modelo de datos.** `db/init/01_schema.sql` no se
+modifica. Ante discrepancia entre este documento y el SQL, gana el SQL y se corrige este
+documento. Los cambios de BD estrictamente necesarios viven en
+`db/init/02_contrato_v1_1.sql` (incremento aparte, §12.2).
 
 Stack inamovible: ASP.NET Core 10/C#, Identity Guid/JWT Bearer, EF Core 10,
-Npgsql/NetTopologySuite, PostgreSQL 18/PostGIS, Database First; Next.js 16/React 19/
-Tailwind CSS 4, TypeScript, pnpm y Docker Compose. Mapas interactivos con Mapbox GL JS.
-Fotos BYTEA en PostgreSQL. Sin motor de rutas, almacenamiento externo obligatorio,
-microservicios, colas ni caché distribuida.
+Npgsql/NetTopologySuite, PostgreSQL 18 con PostGIS y pgRouting, Database First;
+Next.js 16/React 19/Tailwind CSS 4, TypeScript, pnpm y Docker Compose.
+- Mapas interactivos con Mapbox GL JS. Es la única excepción a "sin servicios externos":
+  requiere token público por entorno y teselas externas.
+- pgRouting permanece instalado para isócronas por tiempo futuras; no tiene uso en el
+  MVP y la imagen de PostgreSQL debe incluirlo junto a PostGIS.
+- Fotos BYTEA en PostgreSQL. Sin microservicios ni caché distribuida.
+- **Sin cookies**: sin cookies en backend. La sesión usa solo `Authorization: Bearer`.
 
-P0 = seguridad, integridad y operación. P1 = catálogo público y administración.
-P0/P1 = MVP: 27 operaciones. P2 = registro y propietarios: 4 adicionales, 31 total.
-P2 reutiliza rutas management; no duplica rutas para owner y admin.
-Fuera de P0/P1/P2: reseñas, favoritos, anuncios/pagos, eventos/estadísticas,
-autocompletado, importaciones masivas, CRUD genérico de catálogos/parámetros,
-contornos territoriales y GIS avanzado. Sus tablas no se eliminan. No hay
-endpoints, workers ni contratos parciales para esos módulos.
+Alcance MVP único (desaparece la división P2). P0 = seguridad, integridad y operación;
+P1 = catálogo público, administración, registro y propietarios. Total: **84 operaciones** (§1).
 
-## 1. INVENTARIO CANÓNICO — 27 OPERACIONES MVP + 4 P2
+Fuera de alcance: reseñas, favoritos, anuncios/pagos, eventos/estadísticas,
+autocompletado, suscripciones y pagos de negocio (solo sus catálogos), CRUD de
+territorios, GIS avanzado/isócronas y concurrencia optimista (§2.3). Sus tablas no se
+eliminan.
 
+Las funciones SQL de dominio (`create_business_with_branch`, `add_photo`,
+`add_business_photo`, `set_primary_photo`, `admin_*`, `soft_delete_*`) **se invocan**.
 
-Todas las rutas usan el prefijo /api/v1, INCLUIDAS las rutas health.
-P=pública; A=Admin; M=Admin o propietario asociado vigente en P2.
-En P1 toda M exige Admin. Id de ruta UUID salvo slug, que es texto.
-Por defecto éxito 200; 201/204 se indican. Entradas/salidas tipadas en §2..11.
+## 1. INVENTARIO CANÓNICO — 84 OPERACIONES
 
-| ID | Método | Ruta relativa | Acceso | Entrada → salida |
+Todas las rutas usan el prefijo `/api/v1`, incluidas las de health.
+Acceso: P = pública; S = cualquier sesión; M = Admin o propietario vinculado vigente
+(§10); A = Admin. Id de ruta UUID salvo slug y `{code}`, que son texto. Éxito 200 salvo
+indicación. Cada operación tiene `operationId` estable (`Grupo.Accion`); el OpenAPI
+generado es la fuente del inventario y debe coincidir con estas tablas.
+
+### 1.1 Operaciones específicas (30)
+
+| # | Método | Ruta relativa | Acceso | Entrada → salida |
 | --- | --- | --- | --- | --- |
-| 01 | `GET` | `/catalogs` | P | ninguna -> Catalogs |
-| 01b | `GET` | `/categories` | P | query ListRequest -> `ApiResponse<PagedResult<CategoryDto>>` |
-| 01c | `GET` | `/categories/{id}` | P | UUID -> `ApiResponse<CategoryDto>` |
-| 01d | `POST` | `/categories` | A | CreateCategoryRequest -> `ApiResponse<CategoryDto>`, 201 |
-| 02 | `GET` | `/territories` | P | query §4 -> `Page<Territory>` |
-| 03 | `GET` | `/branches` | P | query §5 -> `Page<BranchSummary>`/GeoJSON |
-| 04 | `GET` | `/businesses/{slug}` | P | slug -> PublicBusiness |
-| 05 | `GET` | `/branches/{branchId}` | P | UUID -> PublicBranch |
-| 06 | `GET` | `/photos/{photoId}` | P/M | UUID -> binario §9 |
-| 07 | `POST` | `/auth/login` | P | LoginInput -> AuthSession |
-| 08 | `POST` | `/auth/refresh` | P | cookie, sin body -> AuthSession |
-| 09 | `POST` | `/auth/logout` | P | cookie, sin body -> 204 |
-| 10 | `GET` | `/auth/me` | sesión | ninguna -> User |
-| 11 | `GET` | `/management/businesses` | M | query §7 -> `Page<ManagedSummary>` |
-| 12 | `POST` | `/management/businesses` | M | CreateBusiness -> ManagedBusiness, 201 |
-| 13 | `GET` | `/management/businesses/{businessId}` | M | UUID -> ManagedBusiness |
-| 14 | `PUT` | `/management/businesses/{businessId}` | M | BusinessInput -> ManagedBusiness |
-| 15 | `PUT` | `/management/businesses/{businessId}/publication` | A | PublicationInput -> ManagedBusiness |
-| 16 | `DELETE` | `/management/businesses/{businessId}` | A | sin body -> 204 |
-| 17 | `POST` | `/management/businesses/{businessId}/restore` | A | RestoreInput -> ManagedBusiness |
-| 18 | `POST` | `/management/businesses/{businessId}/branches` | M | BranchInput -> ManagedBusiness, 201 |
-| 19 | `PUT` | `/management/branches/{branchId}` | M | BranchInput -> ManagedBusiness |
-| 20 | `DELETE` | `/management/branches/{branchId}` | M | sin body -> 204 |
-| 21 | `POST` | `/management/branches/{branchId}/restore` | A | sin body -> ManagedBusiness |
-| 22 | `POST` | `/management/branches/{branchId}/photos` | M | multipart §9 -> ManagedBusiness, 201 |
-| 23 | `PUT` | `/management/photos/{photoId}` | M | PhotoInput -> ManagedBusiness |
-| 24 | `DELETE` | `/management/photos/{photoId}` | M | sin body -> 204 |
-| 25 | `GET` | `/admin/audit-logs` | A | query §10 -> `Page<AuditEntry>` |
-| 26 | `GET` | `/health` | P | ninguna -> Health |
-| 27 | `GET` | `/health/ready` | P | ninguna -> Health, 200/503 |
-| 28 | `POST` | `/auth/register` | P/P2 | RegisterInput -> User, 201 |
-| 29 | `GET` | `/admin/businesses/{businessId}/owners` | A/P2 | ninguna -> OwnerList |
-| 30 | `PUT` | `/admin/businesses/{businessId}/owners` | A/P2 | OwnerInput -> Owner |
-| 31 | `DELETE` | `/admin/businesses/{businessId}/owners/{userId}` | A/P2 | sin body -> 204 |
+| 01 | GET | `/health` | P | — → Health |
+| 02 | GET | `/health/ready` | P | — → Health, 200/503 |
+| 03 | POST | `/auth/register` | P | RegisterInput → User, 201 |
+| 04 | POST | `/auth/login` | P | LoginInput → AuthSession |
+| 05 | POST | `/auth/refresh` | S | sin body → AuthSession |
+| 06 | POST | `/auth/logout` | S | sin body → 204 |
+| 07 | GET | `/auth/me` | S | — → User |
+| 08 | GET | `/territories` | P | query §4.3 → `Page<Territory>` |
+| 09 | GET | `/branches` | P | query §5 → `Page<BranchSummary>` / GeoJSON |
+| 10 | GET | `/branches/{branchId}` | P/A | UUID → PublicBranch |
+| 11 | GET | `/businesses/{slug}` | P | slug → PublicBusiness |
+| 12 | GET | `/photos/{photoId}` | P/M/A | UUID → binario §9 |
+| 13 | GET | `/management/businesses` | M | query §7 → `Page<ManagedSummary>` |
+| 14 | POST | `/management/businesses` | M* | CreateBusiness → ManagedBusiness, 201 |
+| 15 | GET | `/management/businesses/{businessId}` | M | UUID → ManagedBusiness |
+| 16 | PUT | `/management/businesses/{businessId}` | M | BusinessInput → ManagedBusiness |
+| 17 | PUT | `/management/businesses/{businessId}/publication` | A | PublicationInput → ManagedBusiness |
+| 18 | DELETE | `/management/businesses/{businessId}` | A | sin body → 204 |
+| 19 | POST | `/management/businesses/{businessId}/restore` | A | RestoreInput → ManagedBusiness |
+| 20 | POST | `/management/businesses/{businessId}/branches` | M | BranchInput → ManagedBusiness, 201 |
+| 21 | PUT | `/management/branches/{branchId}` | M | BranchInput → ManagedBusiness |
+| 22 | DELETE | `/management/branches/{branchId}` | M | sin body → 204 |
+| 23 | POST | `/management/branches/{branchId}/restore` | A | sin body → ManagedBusiness |
+| 24 | POST | `/management/branches/{branchId}/photos` | M | multipart §9 → ManagedBusiness, 201 |
+| 25 | PUT | `/management/photos/{photoId}` | M | PhotoInput → ManagedBusiness |
+| 26 | DELETE | `/management/photos/{photoId}` | M | sin body → 204 |
+| 27 | GET | `/admin/businesses/{businessId}/owners` | A | query paginación → `Page<Owner>` |
+| 28 | PUT | `/admin/businesses/{businessId}/owners` | A | OwnerInput → Owner |
+| 29 | DELETE | `/admin/businesses/{businessId}/owners/{userId}` | A | sin body → 204 |
+| 30 | GET | `/admin/audit` | A | query §11 → `Page<AuditEntry>` |
 
-No se cuentan OpenAPI/Scalar de desarrollo ni /Prueba, que se retira. Dos formatos
-de búsqueda no son dos operaciones. P1 no registra las rutas 28..31 (404).
+\* 14: Admin o usuario con rol BusinessOwner (§7).
+
+### 1.2 Catálogos y parámetros (54)
+
+Los GET de lista están siempre paginados (§2.2). Escritura siempre Admin.
+Lectura pública devuelve solo activos; Admin puede usar `isActive=true|false` (un
+público que envíe `isActive` recibe 400).
+
+| Recurso | Ruta | Lectura | Operaciones | Cant. |
+| --- | --- | --- | --- | --- |
+| Categorías | `/categories` | P | List, Get `{id}`, Create 201, Update, Delete | 5 |
+| Servicios/productos | `/service_product` | P | ídem | 5 |
+| Características | `/features` | P | ídem | 5 |
+| Métodos de pago | `/payment_method` | P | ídem | 5 |
+| Festivos | `/holiday` | P | ídem | 5 |
+| Tipos de suscripción | `/subscription_type` | A | ídem | 5 |
+| Sinónimos de búsqueda | `/search_synonym` | A | ídem | 5 |
+| Valores de parámetro | `/parameter_value` | A | ídem | 5 |
+| Definiciones de parámetro | `/parameter_definition` | A | List, Get `{code}`, Create 201, Update | 4 |
+| Estado de sucursal | `/branch_status` | P | List, Update `{code}` | 2 |
+| Estado de negocio | `/business_status` | P | List, Update `{code}` | 2 |
+| Estado de suscripción | `/subscription_status` | A | List, Update `{code}` | 2 |
+| Estado de pago de suscripción | `/subscription_payment_status` | A | List, Update `{code}` | 2 |
+| Estado de moderación de reseña | `/review_moderation_status` | A | List, Update `{code}` | 2 |
+
+Total: 30 + 54 = **84**. No se cuentan OpenAPI/Scalar de desarrollo, HEAD/OPTIONS técnicos
+ni `/Prueba` (se retira). Dos formatos de búsqueda no son dos operaciones.
 
 ## 2. CONVENCIONES TRANSVERSALES [P0]
 
-
 ### 2.1 Tipos, formato y validación
 
-JSON camelCase UTF-8, application/json salvo GeoJSON/errores/fotos.
-UUID=string canónica minúscula 8-4-4-4-12 distinta de cero; Guid Identity.
-Date=YYYY-MM-DD; Instant=ISO 8601 UTC con Z; Time=HH:mm local 00:00..23:59.
-Zona única America/La_Paz. Texto plano Unicode, trim, sin HTML/control, longitud
-en caracteres Unicode. No interpretar texto como markup. Password nunca trim.
-Números finitos; JSON no convierte strings a números/bools. Money=número decimal
-BOB 0..999999999999.99, hasta dos decimales; C# decimal/PostgreSQL numeric.
-T? permite null; T[] es array; propiedades obligatorias salvo indicación expresa.
-Salidas siempre incluyen null y []; excepción: privateData existe solo para Admin.
-Arrays sin repetidos por ID/tipo/fecha según contrato. Campo desconocido, JSON
-con claves duplicadas, enum o query desconocidos ->400. Campos requeridos omitidos
-->400. PUT reemplaza campos editables/colecciones; no IDs, padre, slug, auditoría
-ni publicación. No hay PATCH/JSON Patch. GET/DELETE sin body; POST sin body exige
-longitud cero, no {}. UUID mal formado ->400; válido inexistente de ruta ->404.
-Referencia inactiva/inexistente en query/body ->400, con error de campo.
-JSON máximo 1 MiB; multipart 6 MiB, archivo 5 MiB; exceso ->413.
+JSON camelCase UTF-8, `application/json` salvo GeoJSON/errores/fotos.
+UUID = string canónica minúscula 8-4-4-4-12 distinta de cero. Date = YYYY-MM-DD;
+Instant = ISO 8601 UTC con Z; Time = HH:mm local 00:00..23:59. Zona única
+America/La_Paz. Texto plano Unicode, trim, sin HTML/control; longitud en caracteres.
+Password nunca se recorta. Números finitos; JSON no convierte strings a números/bools.
+Money = decimal BOB 0..999999999999.99 con hasta dos decimales (`numeric(18,2)`).
+`T?` permite null; `T[]` es array; propiedades obligatorias salvo indicación expresa.
+Las salidas siempre incluyen null y `[]`; `privateData` existe solo para Admin.
+
+**Sin envoltorio de respuesta**: no existen `ApiResponse` ni `PagedResult`. Éxito = el
+tipo directo (objeto, arreglo o `Page<T>`); error = ProblemDetails (§2.4).
+
+Campo desconocido, claves JSON duplicadas, enum o query desconocidos → 400. Requeridos
+omitidos → 400. PUT reemplaza campos editables/colecciones; no IDs, padre, slug,
+auditoría ni publicación. No hay PATCH. GET/DELETE sin body. **POST sin body ignora el
+body recibido.** UUID mal formado → 400; válido inexistente de ruta → 404. Referencia
+inactiva/inexistente en query/body → 400 con error de campo. No se aceptan query en
+rutas sin query declarada.
+JSON máximo 1 MiB; multipart según §9; exceso → 413.
 
 ### 2.2 Paginación
 
-Pagination={page:int,pageSize:int,totalItems:int,totalPages:int}.
-`Page<T>`={items:T[],pagination:Pagination}.
-page predeterminado 1, >=1; pageSize predeterminado 20, 1..100.
-offset=(page-1)*pageSize máximo 2000; exceso ->400. totalPages=ceil(total/pageSize),
-0 si total=0. Página posterior al final dentro del límite ->200 items vacío.
-Contar recursos distintos, no joins multiplicados. Conteo y página en la misma
-instantánea REPEATABLE READ de lectura; páginas solicitadas por separado pueden
-cambiar con nuevas publicaciones. Listas no paginadas tienen límites explícitos.
+`Pagination={page,pageSize,totalItems,totalPages}`; `Page<T>={items:T[],pagination}`.
+**Todo GET que devuelva una lista usa `Page<T>`**, sin excepción (catálogos, estados,
+territorios, propietarios, auditoría, búsqueda). Un cliente que necesite el catálogo
+completo recorre páginas.
+`page` predeterminado 1, ≥1; `pageSize` predeterminado 20, 1..100. offset = (page-1)·pageSize
+≤ 2000 (si no → 400). totalPages = ceil(total/pageSize), 0 si total = 0. Página posterior al
+final dentro del límite → 200 con items vacío.
+**Total y página salen de una única consulta** (misma instantánea), contando recursos
+distintos. No se exige REPEATABLE READ; páginas pedidas por separado pueden cambiar.
+Colecciones anidadas en fichas tienen límites explícitos (p. ej. ≤100 sucursales).
 
 ### 2.3 Concurrencia, cabeceras y auditoría
 
-Agregado business con sucursales/fotos/asociaciones. Añadir revision BIGINT >=1
-DEFAULT 1. Cada mutación bloquea business SELECT FOR UPDATE, comprueba permiso
-y revisión bajo bloqueo, aplica todo y aumenta revision una vez por cambio
-efectivo y actualiza business.updated_at, también por cambios en hijos. No incrementar
-en reintento sin efecto. Mantenimiento SQL sigue regla.
-Mutaciones autorizadas bloquean usuario antes de business, siempre en ese orden;
-revocar/desactivar usuario usa el mismo bloqueo para evitar carreras.
+**Concurrencia optimista (ETag/If-Match/revision) queda fuera del MVP y se implementará
+después.** Hasta entonces: no hay `revision`, ETag, If-Match, 412 ni 428; rige
+"última escritura gana". Cada mutación se ejecuta en **una transacción** que aplica todos
+los cambios o ninguno. Ninguna respuesta del MVP debe asumir estas cabeceras; el cliente
+no las envía.
 
-GET13 y todas las respuestas ManagedBusiness incluyen ETag fuerte
-"business:{uuid}:v{revision}" y Cache-Control:no-store. revision en JSON es string
-decimal para JavaScript. No usar updatedAt como versión.
-If-Match obligatorio en IDs 14..24 y 30..31: usa ETag del negocio padre también
-para sucursal/foto/propietario. Falta ->428; formato inválido, wildcard o varios
-ETags ->400; obsoleto ->412. No reintentar sobrescritura automáticamente.
-GET29 y PUT30 incluyen ETag del negocio. Respuestas 204 incluyen ETag resultante sin body.
-Alta12 no requiere If-Match. No enviar actor/role/verified/isAdmin/revision en body.
-201 de 12/18/22 incluye Location de GET13 y ManagedBusiness completo. Para identificar
-la sucursal/foto creada se añade cabecera X-Created-Resource-Id: UUID del recurso
-nuevo (también en 12, UUID del negocio). Exponer esa cabecera y ETag por CORS.
-201 registro no inicia sesión; omitir Location porque no hay GET público del usuario.
+Cabeceras: 201 de 14/20/24 incluyen `Location` (GET 15) y `X-Created-Resource-Id` (UUID del
+negocio, sucursal o foto creada; no deducirlo por posición). 201 de catálogos incluyen
+`Location` del GET por id. 201 de registro no inicia sesión y omite `Location`. CORS expone
+`Location` y `X-Created-Resource-Id`.
 
-Actor derivado de JWT, nunca request. La clave transaccional definitiva es
-bolivianegocios.actor_id, usada por app.actor() de la línea base; set_config con true
-para no filtrar identidad al reutilizar conexión. Auditoría dentro de transacción,
-incluidos contactos/horas/relaciones. Excluir tokens/hashes/BYTEA de snapshots/logs.
+**Auditoría desde el primer día, solo con triggers de BD.** La API nunca escribe
+`app.audit_log`. Para que el trigger registre quién modifica, **toda mutación**
+(incluidas las de catálogos) abre una transacción y ejecuta antes
+`set_config('cofre.actor_id', '<UUID del JWT>', true)` (clave de `app.actor()` en el SQL).
+Se implementa con un interceptor de EF Core y se prueba. El actor sale del JWT, nunca del
+request; sin actor la BD registra el UUID de ceros, que se considera defecto. Excluir
+tokens/hashes/BYTEA de snapshots y logs (la BD ya reemplaza los bytes por su SHA-256).
 No generar eventos ni persistir ubicación del visitante.
 
 ### 2.4 Errores y visibilidad
 
-RFC 9457, application/problem+json, tipo uniforme:
-{type:"about:blank",title:string,status:int,code:string,detail:string,
- traceId:string,errors:`Record<string,string[]>`}.
-errors={} salvo validación; mensajes españoles sin SQL ni stack.
+RFC 9457, `application/problem+json`:
+`{type:"about:blank",title,status,code,detail,traceId,errors:Record<string,string[]>}`;
+`errors={}` salvo validación; mensajes en español sin SQL ni stack.
 ```json
 {
   "type": "about:blank",
@@ -152,162 +182,181 @@ errors={} salvo validación; mensajes españoles sin SQL ni stack.
   "errors": {"radiusM": ["Debe estar entre 1 y 50000."]}
 }
 ```
-HTTP/code: 400 validation; 401 unauthorized (WWW-Authenticate:Bearer);
-403 forbidden; 404 not_found; 406 not_acceptable; 409 conflict;
-412 stale_version; 413 payload_too_large; 415 unsupported_media_type;
-428 precondition_required; 429 rate_limited con Retry-After segundos;
-500 internal_error; 503 unavailable. 409 detalla última sucursal, unicidad,
-límite operativo o transición incompatible. Publicación incompleta ->400 por campo.
-401: token ausente/inválido/revocado, usuario inactivo/bloqueado. 403 cuenta válida
-sin rol. M con rol y recurso ajeno ->404. No publicado/eliminado/cerrado permanente
-->404 público, incluidas fotos; preview autenticado §9.
-Público JSON/GeoJSON/fotos: Cache-Control:no-store. Sin OutputCache en MVP.
-Retirar afecta nuevas consultas, no borra copias vistas antes por el visitante.
-Todas las salidas privadas/auth usan no-store. Servir solo por HTTPS en producción.
+HTTP/code: 400 validation; 401 unauthorized (`WWW-Authenticate: Bearer`); 403 forbidden;
+404 not_found; 406 not_acceptable; 409 conflict; 413 payload_too_large;
+415 unsupported_media_type; 429 rate_limited con `Retry-After`; 500 internal_error;
+503 unavailable.
+- Excepciones de triggers/constraints de BD (P0001, unicidad, FK) se mapean a 409 o 400
+  por campo; nunca se filtra el texto SQL.
+- 401: token ausente/inválido/vencido/revocado, usuario inactivo o bloqueado.
+- 403: cuenta válida sin rol suficiente. M con rol y recurso ajeno → 404.
+- No publicado/archivado/cerrado permanente → 404 público, incluidas fotos; el preview
+  autenticado se rige por §9.
+- Público JSON/GeoJSON/fotos: `Cache-Control: no-store`. Sin OutputCache. Toda salida
+  privada/auth usa no-store. Solo HTTPS en producción.
 
-## 3. AUTENTICACIÓN [P0, REGISTRO P2]
+## 3. AUTENTICACIÓN [P0]
 
+`User={id:UUID,email,firstName,lastName,roles:string[]}`. Roles exactos `Admin`,
+`BusinessOwner`, `User`, orden alfabético. Email 3..254, único normalizado
+(`RequireUniqueEmail`); UserName = email normalizado. firstName/lastName 1..150. Password
+12..128 con mayúscula, minúscula, dígito y símbolo; nunca trim ni log. El login acepta el
+mismo rango de longitud pero no reaplica complejidad. Sin campos Identity internos en salida.
 
-User={id:UUID,email:string,firstName:string,lastName:string,roles:string[]}.
-Roles exactos Admin, BusinessOwner, User; orden alfabético. No Moderator.
-Email 3..254 formato email, único normalizado mediante índice DB;
-UserName=email normalizado. firstName/lastName 1..150. Password 12..128,
-mayúscula, minúscula, dígito y símbolo; nunca trim ni log. Sin campos Identity
-internos en salida. No asignar privilegios desde registro. Password de login acepta el mismo rango
-de longitud pero no reaplica reglas de complejidad a contraseñas ya existentes.
-LoginInput={email:string,password:string}.
-07: credenciales correctas/cuenta activa ->200 AuthSession y cookie refresh.
-Error/inactividad/bloqueo ->401 genérico sin revelar si existe email.
-Identity bloquea 15 minutos tras 5 intentos; registrar LastLoginAt.
-En P1 solo cuentas Admin creadas privadamente pueden login; P2 cualquier activa.
-AuthSession={accessToken:string,tokenType:"Bearer",expiresIn:900,user:User}.
-JWT HS256, secreto aleatorio mínimo 32 bytes, issuer/audience configurados;
-claims sub UUID,sid UUID,jti UUID,roles,iat,exp. Vigencia 15 minutos, tolerancia
-30 s. Validar algoritmo fijo/firma/iss/aud/exp y sid activo en CADA ruta privada.
-Consultar IsActive/lockout/roles actuales; claims no sustituyen permisos de DB.
+- **03 registro**: `RegisterInput={email,password,firstName,lastName}` → 201 `User` con
+  `roles=["User"]`, sin sesión. Email duplicado → 409. No asigna privilegios. Una cuenta
+  `User` no gestiona negocios hasta ser vinculada por un Admin (§10).
+- **04 login**: `LoginInput={UserName,password}` → 200 `AuthSession`. Error/inactividad/bloqueo
+  → 401 genérico sin revelar si el email existe. Identity bloquea 15 min tras 5 intentos;
+  se registra `LastLoginAt`.
+- `AuthSession={accessToken,tokenType:"Bearer",expiresIn:900,user:User}`.
+- **JWT HS256**, secreto aleatorio ≥ 32 bytes, issuer/audience configurados; claims
+  `sub` UUID, `jti` UUID, `roles`, `stp` (SHA-256 base64url del SecurityStamp), `auth_time`,
+  `iat`, `exp`. Vigencia 15 minutos, tolerancia 30 s. En **cada** ruta privada se valida
+  algoritmo fijo/firma/iss/aud/exp y se consulta la BD: usuario `IsActive`, sin lockout, roles
+  actuales y `stp` igual al SecurityStamp vigente. Los claims no sustituyen permisos de BD.
+- **05 refresh**: con Bearer **vigente** emite un `AuthSession` nuevo conservando `auth_time`.
+  Si han pasado más de 12 h desde `auth_time` → 401 (nuevo login). El token vencido no
+  se renueva; el frontend renueva antes de expirar y serializa las renovaciones.
+- **06 logout**: rota el SecurityStamp del usuario → 204. Invalida **todos** los tokens
+  vigentes del usuario (decisión de simplicidad; sin tablas de sesión).
+- **07 me**: sesión activa → 200 `User`; no renueva token.
+- El token vive solo en memoria o `sessionStorage`; **nunca** `localStorage`, cookie, URL ni
+  logs.
+- Sin confirmación de email ni recuperación pública. El operador verifica la identidad por
+  contacto conocido y restablece con `UserManager.GeneratePasswordResetTokenAsync/
+  ResetPasswordAsync` mediante herramienta local que pide secretos de forma interactiva
+  (sin argumentos ni logs), rota el SecurityStamp y entrega la credencial temporal por canal
+  externo. No se actualizan hashes por SQL.
+- Sin cookies no hay CSRF. CORS: producción un origen HTTPS; Development orígenes
+  explícitos; se exponen `Location` y `X-Created-Resource-Id`.
+- **Límites por minuto**, ventana fija, cola 0 (3 políticas): `auth` 5/IP (login y registro);
+  `público` 120/IP (resto de rutas anónimas, búsqueda y health); `privado` 120/usuario
+  (toda ruta con sesión, incluidas refresh, logout y mutaciones). Forwarded headers solo
+  de proxies conocidos antes de derivar la IP.
 
-Refresh: 32 bytes criptográficos base64url, hash SHA-256 en DB, nunca texto claro.
-Cookie dg_refresh, HttpOnly, Secure, SameSite=Strict, Path=/api/v1/auth, sin Domain.
-Secure=false solo Development HTTP local. Familia vence a los 30 días del login,
-sin extensión por renovación. Cookie Max-Age corresponde al tiempo restante.
-08: cookie vigente ->rotación atómica, 200 AuthSession y cookie nueva. Sin cookie,
-expirada/revocada ->401 y eliminar cookie. Reutilizar consumido revoca toda
-familia, incluidos JWT por sid. Bloquear familia: una sola renovación gana;
-frontend serializa refresh. Conservar hashes consumidos hasta vencer familia.
-09: con/sin cookie ->204, revocar familia reconocida y eliminar misma cookie/path.
-Sin Bearer obligatorio; refresh solo cookie, jamás en JSON/URL. Access token solo
-en memoria, nunca localStorage ni cookie.
-10: sesión Bearer activa ->200 User, no renueva token.
-28/P2: RegisterInput={email,password,firstName,lastName}; 201 User, roles=[User],
-sin sesión automática. Email duplicado ->409. Ruta inexistente en P1.
+## 4. CATÁLOGOS, PARÁMETROS Y TERRITORIOS
 
-No confirmación email ni recuperación pública por correo en alcance; cuentas
-sin privilegios no gestionan negocios. Operador verifica identidad mediante
-contacto comercial conocido y restablece privadamente con Identity UserManager
-GeneratePasswordResetTokenAsync/ResetPasswordAsync, revoca sesiones y entrega
-credencial temporal por canal acordado fuera de app. La herramienta local de
-mantenimiento deberá pedir secretos interactivamente, sin argumentos/logs;
-no actualizar hashes SQL ni abrir endpoint público de reset sin verificación.
+### 4.1 Elementos de catálogo
 
-CSRF: login/registro con application/json. Login/refresh/logout/registro exigen
-Origin permitido incluso sin body (ausente/distinto ->403). Cliente técnico
-incluye Origin permitido. Navegador credentials:include. Producción un origen
-HTTPS; Development orígenes explícitos CORS con credentials. Bearer no se
-sustituye por cookie. Exponer cabeceras ETag, X-Created-Resource-Id y Location.
-Límites por minuto, ventana fija, cola 0: login/registro 5/IP; refresh/logout
-30/IP; búsqueda 60/IP; otros públicos 120/IP; mutaciones privadas 30/usuario;
-lecturas privadas 120/usuario. Auth/me sin autenticación usa límite público.
-Forwarded headers solo de proxies conocidos antes de derivar IP. Health 120/IP.
+Cada tabla del esquema `catalog` expone su propio controller; no existe `/catalogs`.
+```
+CatalogItem   = {id:UUID, code, name, description?, sortOrder:int, isActive:bool}
+ServiceProduct= CatalogItem + {itemType:"S"|"P"}      // S servicio, P producto
+Category      = CatalogItem + {parentId:UUID?}
+CatalogInput  = {code:1..50 único, name:1..150, description?, sortOrder:int}
+                (+ itemType en service_product; + parentId? en categories)
+```
+Create (201) y Update (PUT) usan `CatalogInput`; PUT reemplaza todos los campos editables,
+incluido `code`, y agrega `isActive`. **Delete es baja lógica** (`active=false`; el trigger de
+BD escribe `deleted_at`/`deleted_by_user_id`); PUT con `isActive:true` la restaura. DELETE ya
+inactivo → 204. Código duplicado → 409. Orden `sortOrder,name,id`. Filtros de lista:
+`search` (substring normalizado en `name`/`code`) e `isActive` (solo Admin).
 
-## 4. CATÁLOGOS Y TERRITORIOS [P1]
+**Categorías**: planas, el cliente arma el árbol. Filtros `parentId` (hijos directos) y
+`rootOnly`, mutuamente excluyentes (combinados → 400). `parentId` debe existir y estar activo
+(el trigger no valida actividad; lo hace la API); ciclo → 409. DELETE/`isActive:false` →
+409 si tiene hijas activas o si dejaría sin categoría vigente a una sucursal publicada
+(excepción del trigger `CATALOG_CATEGORY_COVERAGE`). Las columnas `icon` y `color` no
+existen en el DDL y se omiten.
 
+**Festivos**: `Holiday={id,name:1..150,holidayDate:Date,territoryId?,recurringAnnually,isActive}`;
+`territoryId` null = nacional. Filtro `territoryId`: nacionales + los de ese territorio y sus
+ancestros (misma semántica de `app.is_holiday`). Único `(holidayDate, territoryId, name)` → 409.
 
-CatalogItem={id:UUID,code:string,name:string,sortOrder:int}.
-Category=CatalogItem + {parentId:UUID?}.
-Catalogs={categories:Category[],services:CatalogItem[],features:CatalogItem[],
- paymentMethods:CatalogItem[]}.
-01: sin query, solo activos con ancestros activos; sortOrder,name,id.
-Categorías planas; cliente construye árbol. Máximo operativo 500 por colección;
-carga inicial debe cumplirlo, no truncar. Filtros solo por UUID,
-no mezclar code e ID en el mismo parámetro.
+**Sinónimos**: `SearchSynonym={id,term:1..150,synonym:1..150,locale:1..10 (def. "es-BO"),isActive}`;
+único `(term,synonym,locale)` → 409. Alimentan la búsqueda §5.
 
-### 4.1 Módulo Canónico de Categorías (/api/v1/categories)
+**Tipos de suscripción**: `CatalogItem` sin campos extra.
 
-> **Nota implementación 2026-11-16:** Las columnas `icon` y `color` no existen en `catalog.category`.
-> Se omiten de `CategoryDto`, `CreateCategoryRequest` y `UpdateCategoryRequest` hasta que se añadan al DDL.
+### 4.2 Estados y parámetros
 
-CategoryDto={id:UUID,code:string,name:string,description:string?,parentId:UUID?,sortOrder:int,isActive:bool}.
-ListRequest={page:int (defecto 1, min 1), pageSize:int (defecto 20, max 100), search:string?,
-  parentId:UUID? (hijos directos de esa categoría; excluyente con rootOnly),
-  rootOnly:bool (solo categorías raíz; excluyente con parentId)}.
-CreateCategoryRequest={code:string (3..50, único), name:string (1..100), description:string?, parentId:UUID?, sortOrder:int}.
-UpdateCategoryRequest={code:string (3..50), name:string (1..100), description:string?, parentId:UUID?, sortOrder:int, isActive:bool}.
-  PUT reemplaza todos los campos editables incluyendo code (que sí es editable en actualización).
-  parentId:null elimina la relación con el padre. deleted_at y deleted_by_user_id los gestiona trigger de BD.
+`StatusItem={code,name,sortOrder,isActive}`. Los códigos están referenciados por triggers y
+funciones del SQL: no se crean ni se eliminan por API. PUT `{code}` edita solo
+`name` (1..150), `sortOrder` e `isActive`. En `branch_status` y `business_status`
+`isActive:false` → 409. Valores sembrados: branch `active|temporarily_closed|permanently_closed`;
+business `pending|published|rejected|archived`; subscription, payment y moderation según el SQL.
 
-- **01b `GET /api/v1/categories`**: Retorna `ApiResponse<PagedResult<CategoryDto>>` de categorías activas.
-  Soporta paginación, búsqueda textual en `name` o `code`, y filtrado jerárquico por `parentId` o `rootOnly`.
-  `parentId` y `rootOnly` son mutuamente excluyentes; combinados devuelven 400.
-- **01c `GET /api/v1/categories/{id}`**: Retorna `ApiResponse<CategoryDto>`. Si no existe o está eliminada -> 404 ProblemDetails.
-- **01d `POST /api/v1/categories`**: Crea una categoría activa. Código duplicado -> 409 Conflict. ParentId inexistente/inactivo -> 400 Validation. Exige rol `Admin`.
-- **`PUT /api/v1/categories/{id}`**: Reemplaza campos editables. Si se desactiva (`isActive:false`) la categoría sigue visible en la respuesta con `isActive:false`. Exige rol `Admin`.
-- **`DELETE /api/v1/categories/{id}`**: Baja lógica (soft-delete). Rechaza si tiene hijas sin eliminar -> 409 Conflict. `deleted_at`/`deleted_by_user_id` los escribe el trigger de BD. Exige rol `Admin`.
+`ParameterDefinitionDto={code,description,dataType:"boolean"|"integer"|"numeric"|"text"|"jsonb",
+defaultValue:unknown,minNumber?,maxNumber?,allowedValues?:unknown[],isActive}`. Create/Update
+(sin DELETE; se desactiva con `isActive:false`); `code` inmutable tras crearse. Los
+parámetros consumidos (`photo.max_bytes`, `search.default_radius_m`, `search.default_limit`,
+`review.moderation_post`, `analytics.archive_after_days`) no cambian `dataType` y mantienen los
+topes de `catalog.validate_parameter_data`; la validación de valor/rango la hace el trigger de
+BD y se devuelve como 400 por campo.
 
-Territory={id:UUID,parentId:UUID?,type:string,name:string,codeIne:string?,
- bounds:number[]?}.
-type: department|province|municipality|zone|neighborhood.
-bounds=[minLng,minLat,maxLng,maxLat] de boundary o null; no geometría ni GeoJSON.
-02 query: type opcional enum; parentId opcional UUID (hijos DIRECTOS);
-page/pageSize. Sin parentId todos activos según type. Ambos deben cumplir
-jerarquía posible o400; parent inexistente/inactivo ->400. Orden nombre
-normalizado,id. Solo activos con ancestros activos. Barrio puede colgar de
-municipio o zona. Departamentos raíz cargados pertenecen a Bolivia; no tabla país.
+`ParameterValueDto={id,code,value:unknown,scopeType:"global"|"branch",scopeId?,validFrom:Instant,
+validTo:Instant?,isActive}`. Solo se aceptan `global` y `branch` este último únicamente para
+`photo.max_bytes` (regla del trigger). Solape de vigencia → 409. Delete = baja lógica.
+`validTo > validFrom`.
 
-## 5. BÚSQUEDA JSON/GEOJSON [P1]
+### 4.3 Territorios
 
+`Territory={id,parentId?,type:"department"|"province"|"municipality"|"zone"|"neighborhood",
+name,codeIne?,bounds?:number[]}` donde `bounds=[minLng,minLat,maxLng,maxLat]` o null (no
+geometría). 08 query: `type` opcional; `parentId` opcional (hijos directos); `page/pageSize`.
+Sin `parentId`, todos los activos según `type`. Combinación imposible por jerarquía o parent
+inexistente/inactivo → 400. Orden nombre normalizado, id. Barrio puede colgar de municipio o
+zona. Los departamentos raíz pertenecen a Bolivia; no hay tabla país. La carga territorial es
+por scripts con procedencia (fuente, versión, fecha); sin CRUD HTTP.
 
-03 query (opcionales salvo dependencias):
- q           texto trim 1..200; vacío/blancos equivale a ausencia.
- categoryId  UUID activo, incluye descendientes activos.
- territoryId UUID activo, incluye descendientes activos.
- lat         número [-90,90], requiere lng.
- lng         número [-180,180], requiere lat.
- radiusM     entero 1..50000, requiere centro; con centro omitido ->400.
- bbox        string minLng,minLat,maxLng,maxLat, cuatro números finitos.
- openNow     true|false, predeterminado false.
- page        entero, predeterminado1, límites §2.
- pageSize    entero, predeterminado20, límites §2.
- format      json|geojson, predeterminado json.
+## 5. BÚSQUEDA JSON/GEOJSON
 
-Centro sin radio aplica10000m. Centro/radio y bbox EXCLUYENTES.
-bbox -180<=minLng<maxLng<=180, -90<=minLat<maxLat<=90; sin antimeridiano;
-ancho máximo13 grados, alto14.5 (caja operativa Bolivia). Radio/bbox fuera de
-Bolivia es consulta válida potencialmente vacía. No confundir con validación de
-alta. Sin centro/bbox ->catálogo nacional paginado. Filtros AND. No radiusKm,
-lon alias ni coma decimal. Boolean query solo true/false; int decimal base10.
+09 query (opcionales salvo dependencias):
+```
+q            texto 1..200 (vacío = ausente)
+categoryId   UUID, incluye descendientes activos
+territoryId  UUID, incluye descendientes activos
+lat,lng      requieren ambos
+radiusM      entero 1..50000, requiere centro
+bbox         minLng,minLat,maxLng,maxLat (cuatro números finitos)
+openNow      true|false (def. false)
+minPriceBob  Money, precio mínimo de interés
+maxPriceBob  Money, precio máximo de interés (≥ minPriceBob)
+page, pageSize, format = json|geojson (def. json)
+```
+Centro sin radio usa el parámetro `search.default_radius_m` (500). Centro/radio y bbox son
+excluyentes. bbox: `-180≤minLng<maxLng≤180`, `-90≤minLat<maxLat≤90`, sin antimeridiano, ancho
+≤ 13° y alto ≤ 14.5°. Sin centro/bbox → catálogo nacional paginado. Filtros en AND. Sin
+`radiusKm`, alias `lon` ni coma decimal.
 
-Visibilidad: business.published, business/branch.deleted_at NULL, ambos status
-no permanently_closed; territorio/ancestros activos y ubicación validada.
-Temporarily_closed sigue visible, isOpen=false. Cierre temporal del padre aplica
-al estado efectivo de sucursal.
-Texto: app.normalize (tildes/caso), trade_name y branch.name; substring literal o
-similarity pg_trgm >=0.3; más sinónimos activos es-BO con term normalizado=q.
-Escapar %/_ como literal, parametrizar SQL. Sin anuncios/reseñas en orden.
-Con centro: distancia sin redondear ASC,id ASC. Sin centro: normalize(tradeName),
-normalize(name),id ASC. distanceM entero redondeado para salida, null sin centro.
-ST_DWithin/ST_Distance geography en metros. bbox usa rectángulo geometry4326,
-ST_Covers sobre punto geometry (incluye borde), con prefiltrado espacial indexado;
-no transformar lados lat/lng en arcos geográficos. Filtrar radio antes de ordenar.
+**Filtro de precio**: una sucursal coincide si tiene al menos un servicio/producto con precio
+activo cuyo rango `[min,max]` se solapa con `[minPriceBob,maxPriceBob]` (cualquiera de los
+extremos puede omitirse). Sucursales sin precios informados no coinciden cuando se filtra por
+precio.
 
-Point={type:"Point",coordinates:[lng:number,lat:number]}.
-BusinessStatus=active|temporarily_closed|permanently_closed.
-BranchSummary={id:UUID,businessId:UUID,businessSlug:string,tradeName:string,
- name:string,address:string,territoryId:UUID,location:Point,distanceM:int?,
- status:BusinessStatus,isOpen:bool?,priceLevel:int?,coverPhotoUrl:string?}.
-status efectivo: temporal si cualquier padre/sucursal temporal; permanente nunca
-sale público. priceLevel=sucursal si existe, si no negocio;1..4 o null. Portada
-activa URL relativa /api/v1/photos/{photoId} o null. Sin calificaciones ficticias.
-JSON:200 `Page<BranchSummary>`, application/json. Ejemplo:
+**Visibilidad** (vista `app.published_branch`): negocio `published` y sucursal `active` o
+`temporarily_closed`. Una sucursal temporalmente cerrada sigue visible con `isOpen=false`.
+Archivado, rechazado, pendiente o cerrada permanente nunca salen.
+
+**Implementación**: una sola consulta SQL parametrizada `app.search_branches` (§12.2)
+que devuelve la página y el total. Texto: `app.normalize` (tildes/caso), `trade_name` y
+nombre de sucursal por substring literal o `pg_trgm` (`%`), más sinónimos activos `es%` cuyo
+término normalizado coincide. `%`/`_` se escapan como literal. Distancia: `ST_DWithin/
+ST_Distance` sobre `geography` (metros). bbox: rectángulo `geography` con `ST_Intersects`.
+Radio y bbox se filtran antes de ordenar.
+
+**Orden** (idéntico al SQL): patrocinadas primero, luego similitud del `trade_name` con `q`,
+luego distancia ascendente (sin centro, nulos al final) y `branch_id`. El módulo de anuncios
+está se introduce mediante sql crudo de forma manual, por lo que el orden
+efectivo es similitud → distancia → id. `distanceM` es entero redondeado, null sin centro.
+
+```
+Point = {type:"Point", coordinates:[lng,lat]}
+BranchStatus = active|temporarily_closed|permanently_closed
+BranchSummary = {id, businessId, businessSlug, tradeName, name, address,
+  territoryId?:UUID, location:Point, distanceM?:int, status:BranchStatus,
+  isOpen?:bool, minPriceBob?:Money, maxPriceBob?:Money, rating?:number,
+  reviewCount:int, isSponsored:bool, coverPhotoUrl?:string}
+```
+`minPriceBob`/`maxPriceBob` = mínimo y máximo entre los precios activos de la sucursal (null si
+ninguno). `rating` es null si no hay reseñas visibles (sin calificaciones ficticias);
+`reviewCount` 0 y `isSponsored` false mientras esos módulos no se usen. Portada = foto activa
+con `is_primary`, luego `sortOrder,id`, como URL relativa `/api/v1/photos/{photoId}` o null.
+`isOpen`: si no hay horario conocido (§6) es null; si no, `app.is_open_at(branch, evaluatedAt)`.
+`openNow=true` solo incluye `true`. `evaluatedAt` es único por respuesta.
+
+JSON: 200 `Page<BranchSummary>`, `application/json`. Ejemplo:
 ```json
 {
   "items": [{
@@ -322,169 +371,133 @@ JSON:200 `Page<BranchSummary>`, application/json. Ejemplo:
     "distanceM": 1420,
     "status": "active",
     "isOpen": true,
-    "priceLevel": 2,
+    "minPriceBob": 25.00,
+    "maxPriceBob": 90.00,
+    "rating": null,
+    "reviewCount": 0,
+    "isSponsored": false,
     "coverPhotoUrl": null
   }],
   "pagination": {"page": 1, "pageSize": 20, "totalItems": 1, "totalPages": 1}
 }
 ```
-GeoJSON:application/geo+json, RFC7946 WGS84 grados, SIEMPRE [lng,lat], sin crs.
-FeatureCollection={type:"FeatureCollection",features:BranchFeature[],
- pagination:Pagination}; pagination miembro adicional con misma semántica JSON.
-BranchFeature={type:"Feature",id:UUID,geometry:Point,
- properties:BranchSummary SIN id y SIN location}.
-Sin duplicar coordenadas ni geometrías null, altitud, estilos o bbox adicional.
-Feature.id=BranchSummary.id. Vacío features=[], total0. Ejemplo de la misma fila:
-```json
-{
-  "type": "FeatureCollection",
-  "features": [{
-    "type": "Feature",
-    "id": "b19fd3ef-2195-4e3e-83d9-420a0d4e2222",
-    "geometry": {"type": "Point", "coordinates": [-68.1193, -16.4897]},
-    "properties": {
-      "businessId": "7f3b2c3a-3b4e-4e31-b6bb-1f12f3c9b101",
-      "businessSlug": "la-casona",
-      "tradeName": "La Casona",
-      "name": "Centro",
-      "address": "Calle Junín 123",
-      "territoryId": "d91c91d4-0b7f-4fa4-9102-50a6b0c33333",
-      "distanceM": 1420,
-      "status": "active",
-      "isOpen": true,
-      "priceLevel": 2,
-      "coverPhotoUrl": null
-    }
-  }],
-  "pagination": {"page": 1, "pageSize": 20, "totalItems": 1, "totalPages": 1}
-}
+GeoJSON: `application/geo+json`, RFC 7946, WGS84, siempre `[lng,lat]`, sin `crs`.
+`FeatureCollection={type,features:BranchFeature[],pagination}`;
+`BranchFeature={type:"Feature",id:UUID,geometry:Point,properties:BranchSummary SIN id y SIN location}`.
+`Feature.id = BranchSummary.id`. Vacío: `features=[]`, total 0. Sin geometrías null, altitud,
+estilos ni bbox adicional. `format` elige la representación; `Accept` ausente o `*/*` la admite;
+si no admite la solicitada → 406 ProblemDetails. No existen `/map` ni `/nearby`.
+
+## 6. FICHAS Y HORARIOS
+
+`PublicBusiness={id,slug,tradeName,description?,branches:PublicBranch[]}`. 11: slug 1..160
+regex `^[a-z0-9]+(-[a-z0-9]+)*$`, exacto. Todas las sucursales visibles, principales primero,
+`name,id`, máximo 100. Sin visibles → 404.
+
+`PublicBranch = BranchSummary + {description?, isPrimary, territoryPath:TerritoryRef[],
+categories:CatalogRef[], services:ServiceRef[], features:CatalogRef[], paymentMethods:CatalogRef[],
+contacts:Contact[], hoursKnown:bool, openingHours:OpeningHour[], hourOverrides:HourOverride[],
+holidays:Holiday[], timeZone:"America/La_Paz", evaluatedAt:Instant, photos:Photo[]}`.
+- `CatalogRef={id,code,name}`; `TerritoryRef={id,type,name}` (raíz a hoja);
+  `ServiceRef={id,code,name,itemType,description?,minPriceBob?,maxPriceBob?}`;
+  `Photo={id,url,altText?,isPrimary,sortOrder}`.
+- 10 (`GET /branches/{branchId}`): mismo DTO, `distanceM=null`. Anónimo aplica la visibilidad
+  de §5; **Admin con Bearer** ve además sucursales de cualquier estado (panel de administración).
+- `description` = descripción del negocio. Nunca se exponen `legalName/taxId`, propietarios ni
+  datos de auditoría.
+- Contactos `{type,value}`: `phone|whatsapp|email|website|facebook|instagram`, uno por tipo, ≤ 6,
+  `value` 1..500. phone/whatsapp E.164 `^\+[1-9][0-9]{7,14}$`; email válido; URLs HTTPS sin
+  credenciales. No se descargan URLs en servidor. Orden según el enum.
+- `OpeningHour={weekday:0..6 (0 domingo),opensAt:Time,closesAt:Time,is24Hours:bool}`. ≤ 28 turnos;
+  `closesAt<opensAt` cruza medianoche; sin solapes en la semana circular, intervalos `[abre,cierra)`.
+  Con `is24Hours=true` ambas horas son `00:00` (24 h, sin arrastre al día siguiente); sin él
+  `opensAt≠closesAt`.
+- `HourOverride={date,isClosed,is24Hours,opensAt?,closesAt?,reason?:≤300}`: una por fecha, ≤ 366.
+  Cerrada exige horas null y `is24Hours=false`; abierta exige ambas no nulas (`00:00` si
+  `is24Hours`). Sustituye al horario semanal y al festivo.
+- Calendario público: ayer a hoy+365 días según `evaluatedAt` local. Orden: horarios
+  `weekday,opensAt`; overrides por fecha; festivos `fecha,name`; catálogos `name,id`; fotos
+  `sortOrder,id`.
+- `hoursKnown` = existe algún turno semanal activo u override activo. Si es false:
+  `openingHours=[]`, `isOpen=null`. Si es true, `isOpen = app.is_open_at(branch, evaluatedAt)`,
+  que ya aplica excepción de hoy, festivo (territorio y ancestros, recurrentes), turnos nocturnos
+  de ayer y cierre de la sucursal (`temporarily_closed` → false). No se calcula una regla
+  distinta en el navegador. No existe "cerrado toda la semana" explícito: se modela con un
+  override cerrado o sin horario conocido.
+- Los festivos de salida son `Holiday` expandido a `{date,name}` en la ventana; distintos por fecha/nombre.
+
+## 7. GESTIÓN DE NEGOCIOS
+
+**Modelo de estado (según SQL)**: el negocio solo tiene estado de **publicación**
+(`pending|published|rejected|archived`); no existe estado comercial de negocio. `archived`
+≡ baja lógica (el trigger escribe `deleted_at`). La sucursal tiene estado operativo
+(`active|temporarily_closed|permanently_closed`); `permanently_closed` ≡ baja lógica.
+
+13 query: `q` 1..200 (tradeName/slug, substring normalizado), `publicationStatus` opcional
+(`pending|published|rejected|archived`), `deleted=false|true` (def. false; `true` equivale a
+`archived`; solo Admin, propietario → 403), `page/pageSize`. Filtros en AND; orden
+`updatedAt DESC, id ASC`. M solo lista vínculos propios vigentes.
+`ManagedSummary={id,slug,tradeName,publicationStatus,deletedAt?,updatedAt,branchCount}`
+(`branchCount` = sucursales no eliminadas).
+
+`BusinessInput={tradeName:1..200,description?:≤5000,legalName?:≤250,taxId?:≤50}`. Vacío → null.
+`taxId` único exacto, sin reglas tributarias. El propietario debe **omitir** `legalName` y
+`taxId` (incluso null → 400). `CreateBusiness={business:BusinessInput,branch:BranchInput}`.
+No hay `priceLevel` ni estado comercial en el negocio.
+
+14: crea el negocio en `pending` y su primera sucursal con `isPrimary=true`, en una
+transacción. Permiso: Admin o usuario con rol BusinessOwner; el propietario queda vinculado
+al crear (atómico). Nunca publica. Slug automático e inmutable: ASCII minúscula con guiones,
+base ≤ 140, fallback `negocio`; colisión → base + `-` + 12 hex del UUID. Único incluso entre
+archivados; no se reutiliza. POST duplicado puede crear otro: el cliente deshabilita el doble
+envío y no reintenta sin conocer el resultado. Sin claves de idempotencia.
+
 ```
-format elige representación. Accept ausente o */* la admite; si no admite la
-solicitada ->406 ProblemDetails. Resto rutas JSON solo JSON. No /map ni /nearby.
+ManagedBusiness = {id, slug, tradeName, description?, publicationStatus, createdAt,
+  updatedAt?, deletedAt?, branches:ManagedBranch[], privateData?:{legalName?,taxId?}}
+ManagedBranch = {id, businessId, status:BranchStatus, createdAt, deletedAt?,
+  input:BranchInput, photos:Photo[]}
+```
+`privateData` solo Admin. `input` son los valores editables almacenados; para una sucursal
+dada de baja `input.status` es `active` (valor con el que se restaura). Admin ve eliminadas;
+propietario no. Orden: vigentes primero, principales primero, `name,id`. Límite de 100
+vigentes y 500 históricas por negocio → 409, nunca se trunca. Fotos solo activas, ≤ 20 por
+sucursal; sin binario. 15: Admin lee archivado; M solo vigente vinculado.
 
-## 6. FICHAS Y HORARIOS [P1]
+16 actualiza `BusinessInput`; negocio archivado → 409 (usar 19).
 
+`PublicationInput={status:"pending"|"published"|"rejected"}`. 17 solo Admin; no acepta
+`archived`. Publicar exige: nombre, descripción no vacía y slug; ≥ 1 sucursal no eliminada;
+**todas** sus sucursales no eliminadas con dirección, punto y municipio válidos (§8), ≥ 1
+categoría activa (el trigger diferido `*_PUBLICATION_CATEGORY` lo refuerza) y ≥ 1 contacto.
+No exige precio, foto ni horario. Falta → 400 por campo. Un negocio `published` conserva las
+condiciones al editarse (si no, rollback 400); no se despublica en silencio.
 
-PublicBusiness={id:UUID,slug:string,tradeName:string,description:string?,
- status:BusinessStatus,priceLevel:int?,branches:PublicBranch[]}.
-04: slug1..160 regex ^[a-z0-9]+(-[a-z0-9]+)*$, exacto, sin query/body. Todas las
-sucursales visibles, principal primero,name,id, máximo100. Sin visibles ->404.
-PublicBranch=BranchSummary + {description:string?,isPrimary:bool,
- businessStatus:BusinessStatus,branchStatus:BusinessStatus,
- territoryPath:TerritoryRef[],categories:CatalogRef[],services:CatalogRef[],
- features:CatalogRef[],paymentMethods:CatalogRef[],contacts:Contact[],
- hoursKnown:bool,openingHours:OpeningHour[],hourOverrides:HourOverride[],
- holidays:Holiday[],timeZone:"America/La_Paz",evaluatedAt:Instant,
- minPriceBob:Money?,maxPriceBob:Money?,photos:Photo[]}.
-CatalogRef={id:UUID,code:string,name:string}.
-TerritoryRef={id:UUID,type:string,name:string}, raíz a hoja.
-Photo={id:UUID,url:string,altText:string?,isPrimary:bool,sortOrder:int}.
-Contact={type:string,value:string}; phone|whatsapp|email|website|facebook|instagram.
-Una fila por tipo, máximo 6. value no vacío y hasta 500 caracteres; phone/whatsapp E.164 ^\+[1-9][0-9]{7,14}$; email válido;
-URLs HTTPS sin credenciales, host válido, <=500. No descargar URLs en servidor.
-UI construye tel:/mailto:/wa.me. Orden contactos según enum anterior.
+18 (Admin): baja lógica = `status='archived'` y todas las sucursales no eliminadas pasan a
+`permanently_closed` (los triggers escriben `deleted_at/by`); no toca fotos ni propietarios.
+Ya archivado → 204 sin cambio; conserva los timestamps de bajas previas.
 
-OpeningHour={weekday:int,opensAt:Time,closesAt:Time},0domingo..6sábado.
-Máximo28 turnos semanales, opensAt!=closesAt. closesAt<opensAt cruza medianoche.
-Sin solapes en semana circular, incluido sábado/domingo; intervalos [abre,cierra).
-24h se representa por turnos adyacentes00:00-12:00 y12:00-00:00, no horas iguales.
-HourOverride={date:Date,isClosed:bool,opensAt:Time?,closesAt:Time?,reason:string?}.
-Una/fecha, máximo366, reason<=300. Cerrada exige horas null; abierta ambas
-no nulas diferentes, una franja con cruce permitido. Sustituye semanal/festivo.
-Holiday={date:Date,name:string}; nacionales o ancestros territoriales, expandir
-recurrentes en ventana de salida, distintos por fecha/nombre.
-Calendario público: ayer hasta hoy+365 días inclusive, según evaluatedAt local.
-Horarios orden weekday,opensAt; overrides fecha; holidays fecha,name; catálogos
-nombre,id; fotos sortOrder,id. EvaluatedAt único por respuesta, también búsqueda.
-
-hoursKnown=false exige openingHours=[]; isOpen=null sin excepción hoy ni festivo.
-hoursKnown=true con [] significa cerrado toda semana. Temporal fuerza false.
-Festivo sin override y override cerrado hoy fuerzan false TODA fecha, anulando
-arrastre previo. En otros casos evaluar hoy y arrastre de ayer según regla de
-ayer. Apertura explícita hoy puede coexistir con arrastre válido; alguna franja
-abierta ->true. Sin franja, false si hoursKnown o excepción hoy, null si desconocido.
-openNow solo incluye true. No calcular una regla distinta en navegador.
-05 sin query/body, distanceM=null; también null en sucursales de04.
-PublicBranch.description=descripción del negocio. No legalName/taxId, IDs/emails
-de propietarios, revisión ni auditoría pública. Precio orientativo1económico,
-2medio,3alto,4muy alto; no simular cero por ausencia. Rangos de sucursal BOB
-independientes opcionales, ambos informados min<=max. Sin service_price en API.
-
-## 7. GESTIÓN DE NEGOCIOS [P1, PERMISOS P2]
-
-
-11 query:q opcional1..200 por tradeName/slug; publicationStatus opcional
-(draft|published|archived); deleted=false|true predeterminado false; page/pageSize.
-Filtros AND, substring normalizada literal; updatedAt DESC,id ASC. Solo Admin
-puede deleted=true; propietario ->403. M solo lista vínculos vigentes propios.
-ManagedSummary={id:UUID,slug:string,tradeName:string,status:BusinessStatus,
- publicationStatus:string,deletedAt:Instant?,updatedAt:Instant,branchCount:int}.
-branchCount=no eliminadas. ID11 solo devuelve resumen.
-
-BusinessInput Admin={tradeName:string,description:string?,status:BusinessStatus,
- priceLevel:int?,legalName:string?,taxId:string?}, todas requeridas.
-tradeName1..200; description<=5000; legalName<=250;taxId<=50. Nullable textual
-vacío se normaliza null. priceLevel null o1..4. taxId exacto único, sin inferir
-reglas tributarias adicionales. Propietario debe OMITIR legalName/taxId, incluso
-null se rechaza400; los otros cuatro campos siguen siendo obligatorios.
-CreateBusiness={business:BusinessInput,branch:BranchInput}.
-12: crea draft y primera sucursal isPrimary=true en una transacción. status alta
-active o temporarily_closed, no permanente. Slug automático e inmutable: normalizar
-ASCII minúscula, letras/dígitos con guiones, base<=140, fallback negocio. Colisión:
-base + guion +12 hex del UUID; reintentar UUID si colisión. Máximo160, UNIQUE
-incluye eliminados, no reutilizar slug. P2 propietario requiere identidad vigente,
-asociación verificada al creador atómica, sigue draft. No publicación automática.
-POST duplicado puede crear otro; deshabilitar doble envío y no reintentar POST
-sin conocer resultado. Sin claves de idempotencia en este alcance.
-
-ManagedBusiness={id:UUID,slug:string,tradeName:string,description:string?,
- status:BusinessStatus,priceLevel:int?,publicationStatus:string,
- createdAt:Instant,updatedAt:Instant,deletedAt:Instant?,revision:string,
- branches:ManagedBranch[],privateData:{legalName:string?,taxId:string?}}.
-privateData solo Admin. publicationStatus siempre draft|published|archived.
-ManagedBranch={id:UUID,businessId:UUID,createdAt:Instant,deletedAt:Instant?,
- input:BranchInput,photos:Photo[]}.
-input son valores editables almacenados, sin herencias. Admin ve eliminadas
-para restauración; propietario solo no eliminadas. Orden no eliminadas primero,
-principal primero,name,id. Máximo100 sucursales no eliminadas y500 históricas
-por negocio; alcanzar límite ->409, nunca truncar salida. Fotos solo activas,
-hasta20 por sucursal; no devolver binario.
-13 permite Admin leer eliminado; M solo vigente asociado.
-14 actualiza BusinessInput. Negocio eliminado ->409; usar17.
-
-PublicationInput={status:"draft"|"published"}.
-15 solo Admin, draft<->published o mismo estado. Publicar exige nombre,
-descripción no vacía y slug; negocio vigente no permanente; >=1 sucursal vigente
-no permanente. TODAS las sucursales visibles: dirección, punto/municipio válido,
->=1 categoría activa, >=1 contacto. No exige precio/foto/horario; informar ausencia.
-Ningún body acepta pending/rejected/archived. Si ya published, edición debe
-preservar condiciones o rollback400; no despublicar silenciosamente. Status del
-negocio a permanente pasa a draft atómicamente; no se republica hasta corregir.
-16 baja lógica negocio y sucursales, publication=archived. Ya baja con ETag
-vigente ->204 sin cambio. No bajar fotos/relaciones ni revocar propietarios;
-visibilidad deriva del padre. Conservar timestamps de sucursales bajas previas.
-
-RestoreInput={branchIds:UUID[]},1..100 distintos, del negocio y eliminados.
-17 solo negocio eliminado, otro estado ->409. Restaurar exclusivamente selección,
-negocio draft; conservar status comercial y slug, otras bajas siguen. Si ninguna
-seleccionada conserva principal, asignar primera createdAt,id; si había más de
-una (datos legacy), reparar como §12. No restaurar fotos eliminadas individualmente.
-Validar referencias/ubicación; conflicto rollback409 o400 por campo. Históricos
-que no cumplan contrato deben corregirse por mantenimiento antes de restauración.
+`RestoreInput={branchIds:UUID[]}` (1..100 distintos, del negocio y eliminados). 19: solo
+negocio archivado (otro estado → 409). Pasa el negocio a `pending` y restaura **solo** las
+sucursales seleccionadas a `active`; las demás permanecen dadas de baja. Conserva el slug. No
+restaura fotos eliminadas individualmente. Valida referencias y ubicación; conflicto → 409 o
+400 por campo.
 
 ## 8. SUCURSALES Y COLECCIONES
 
-
-BranchInput={name:string,address:string,territoryId:UUID,location:Point,
- status:BusinessStatus,isPrimary:bool,priceLevel:int?,minPriceBob:Money?,
- maxPriceBob:Money?,categoryIds:UUID[],serviceIds:UUID[],featureIds:UUID[],
- paymentMethodIds:UUID[],contacts:Contact[],hoursKnown:bool,
- openingHours:OpeningHour[],hourOverrides:HourOverride[]}.
-Todo obligatorio. name1..200,address1..1000; categorías0..10; servicios,
-características/pagos0..30 cada una; resto límites §6. emergency/home_service,
-accessibility JSONB, service_price, descripción de servicio, code y slug de
-sucursal no se exponen/editan: no agregar campos libres.
-Ejemplo completo para alta/PUT:
+```
+ServiceInput = {serviceProductId:UUID, description?:string, minPriceBob?:Money, maxPriceBob?:Money}
+BranchInput = {name:1..200, address:1..1000, territoryId:UUID, location:Point,
+  status:"active"|"temporarily_closed", isPrimary:bool,
+  categoryIds:UUID[], services:ServiceInput[], featureIds:UUID[], paymentMethodIds:UUID[],
+  contacts:Contact[], openingHours:OpeningHour[], hourOverrides:HourOverride[]}
+```
+Todo obligatorio. Límites: categorías 0..10; services/features/pagos 0..30 cada uno; contactos,
+horarios y overrides según §6. En `ServiceInput`, `minPriceBob` y `maxPriceBob` van **ambos
+informados o ambos null**, con `min ≤ max`; precio fijo = `min = max`; ambos null = sin precio.
+No existe `permanently_closed` en la entrada: la baja es DELETE (22). `isPrimary` no es único:
+el SQL admite varias sucursales principales. No se editan `code`, `slug` de sucursal,
+`emergency/home_service` ni `accessibility`.
 ```json
 {
   "name": "Centro",
@@ -493,306 +506,243 @@ Ejemplo completo para alta/PUT:
   "location": {"type": "Point", "coordinates": [-68.1193, -16.4897]},
   "status": "active",
   "isPrimary": true,
-  "priceLevel": 2,
-  "minPriceBob": null,
-  "maxPriceBob": null,
   "categoryIds": ["c1b6d2e0-2b9e-4c7e-91a2-38ce1d2f1111"],
-  "serviceIds": [],
+  "services": [{"serviceProductId": "5a0e2d3c-8f61-4b7a-9c10-2d4f6a8b0c12",
+                "description": null, "minPriceBob": 25.00, "maxPriceBob": 90.00}],
   "featureIds": [],
   "paymentMethodIds": [],
   "contacts": [{"type": "phone", "value": "+59122000000"}],
-  "hoursKnown": true,
-  "openingHours": [{"weekday": 1, "opensAt": "08:00", "closesAt": "18:00"}],
+  "openingHours": [{"weekday": 1, "opensAt": "08:00", "closesAt": "18:00", "is24Hours": false}],
   "hourOverrides": []
 }
 ```
-Point exactamente dos coordenadas, type Point y persistir SRID4326. Rango SQL
-lng -70..-57, lat -23.5..-9 prefiltra, NO prueba frontera. territoryId municipio
-o descendiente activo con ancestros activos. Municipio ancestro debe tener
-boundary válido con procedencia y cubrir punto ST_Covers; si hoja tiene boundary
-también debe cubrir. Sin municipio confiable ->400 por territorio, no simular
-certeza. Carga territorial es P0. Guardar territorio elegido; ajustar trigger
-para no reemplazarlo al mover punto dentro del territorio seleccionado.
-18 alta dentro de negocio, límites activo100/histórico500.19 reemplazo completo,
-no cambia business_id. Exactamente una principal entre NO eliminadas de negocio
-vigente. isPrimary=true desmarca anterior bajo bloqueo; false a actual sin
-reemplazo ->409. Cambiar principal guardando nueva con true, no dos solicitudes.
-20 baja lógica. Última NO eliminada ->409 aunque cerrada comercialmente. Bloqueo
-padre serializa dos bajas. Si principal, asignar restante primera createdAt,id.
-Si published queda sin sucursal visible ->409; retirar publicación antes. Ya baja,
-negocio vigente y ETag correcto ->204. M/P2 también puede baja sucursal propia.
-21 Admin y negocio vigente: restaurar sucursal, validar referencias/punto y
-publicación. Ya vigente ->200 sin cambio. No principal si existe otra. Fotos
-activas vuelven según publicación, no restaura negocio implícitamente.
+**Ubicación**: Point con exactamente dos coordenadas, SRID 4326. El CHECK de la tabla
+(lng −70..−57, lat −23.5..−9) es solo prefiltro. `territoryId` debe ser municipio o descendiente
+activo con ancestros activos; el municipio ancestro debe tener `boundary` válida con procedencia
+que cubra el punto (`ST_Covers`); si la hoja tiene `boundary` también debe cubrirlo. Sin municipio
+confiable → 400 por territorio. **Al mover el punto el trigger `BRANCH_TERRITORY` re-resuelve el
+territorio** (el más específico con `boundary` que lo cubre) cuando la petición no cambia
+`territoryId`; la respuesta devuelve el territorio almacenado. Si cambian punto y territorio, se
+respeta el territorio indicado tras validarlo.
 
-PUT colecciones, sin DELETE físico:
-- Relaciones IDs: ausentes active=false, presentes upsert active=true por PK.
-- Contactos: comparar por tipo; value distinto baja anterior y alta nueva con
-  is_primary=true. Un activo/tipo, máximo6; no borrar historia.
-- Semanales: desactivar turnos anteriores e insertar/reactivar coincidencias.
-  hoursKnown=false requiere [];true con [] cierre habitual.
-- Excepciones: reemplaza calendario editable ayer..hoy+365 inclusive, misma
-  ventana de GET; anteriores se conservan sin enviarse en input. Fuera ventana
-  ->400. Omitidas se desactivan con nueva columna active, upsert por fecha.
-  No borrar por trigger físico. La ventana se evalúa al guardar con hora servidor;
-  ante cruce de día devolver400 para recargar calendario y conservar formulario.
-Todas las colecciones, revisión y auditoría en una sola transacción.
+20 alta (límites 100 vigentes / 500 históricas). 21 reemplazo completo; no cambia `business_id`.
+**22 baja lógica** = `status='permanently_closed'` (el trigger escribe `deleted_at/by`); también
+se permite dar de baja la última sucursal (decisión del SQL). Un negocio publicado sin sucursales
+visibles sigue `published` pero 11 devuelve 404 hasta tener una. Ya baja → 204. 23 (Admin,
+negocio no archivado): sucursal → `active`, valida referencias/punto; ya vigente → 200 sin cambio;
+no restaura el negocio.
+Mutaciones de sucursal/foto sobre negocio archivado → 409 (salvo baja ya efectuada → 204); sobre
+sucursal eliminada → 409 (solo preview Admin y 23). 20 nunca sobre negocio archivado.
+Si `published`, no se puede dejar a una sucursal sin categoría vigente (trigger → 409).
+
+**PUT de colecciones**, sin DELETE físico, todo en la misma transacción:
+- Categorías, características, pagos: ausentes `active=false`; presentes upsert `active=true`
+  por PK. Todo ID debe existir y estar activo (y la categoría sin ancestro inactivo).
+- Servicios: upsert en `branch_service_product`; con precio, upsert en `service_product_price`
+  (una fila activa por sucursal+servicio); sin precio, la fila de precio se desactiva; servicios
+  ausentes se desactivan junto con su precio.
+- Contactos: se **actualiza el valor en el lugar** (una fila activa por tipo, `is_primary=true`,
+  índice `CONTACT_PRIMARY_IDX`); tipo ausente → baja lógica. La historia está en auditoría.
+- Horarios semanales: se reactivan coincidencias, se insertan nuevos y se desactivan los demás;
+  `openingHours=[]` → sin horario semanal.
+- Excepciones: se reemplaza el calendario editable de ayer a hoy+365; las anteriores se conservan
+  sin enviarse; fuera de ventana → 400; omitidas `active=false`; upsert por fecha (UNIQUE
+  branch+fecha). Si el día del servidor cambia durante el guardado → 400 para recargar.
 
 ## 9. FOTOS Y PREVISUALIZACIÓN
 
+24 multipart: `file` (uno), `altText` opcional ≤ 300 (vacío → null), `isPrimary` true/false y
+`sortOrder` entero 0..999 obligatorios. Sin partes extra, URL remota ni base64. JPEG/PNG/WebP,
+≥ 1 byte, 20 activas por sucursal. **Tamaño máximo = parámetro `photo.max_bytes`** (valor de la
+sucursal o global, `catalog.get_parameter`; por defecto 5 MiB, tope 50 MiB), el mismo que valida
+el trigger; el límite multipart es ese valor + 1 MiB. Exceso → 413; formato → 415;
+corrupta/dimensiones/metadatos → 400.
+Se decodifica realmente; se rechazan animadas, corruptas, dimensiones fuera de 64..8192 por eje o
+> 24 megapíxeles. Se recodifica el mismo formato eliminando EXIF/GPS y se vuelve a comprobar el
+tamaño. `filename` se guarda null. El trigger de firma no sustituye al decodificador. Biblioteca
+.NET compatible con Linux y licencia de la organización (sin ImageSharp sin licencia comercial).
 
-22 multipart campos:file (un archivo),altText opcional<=300,ausente/vacío null;
-isPrimary true/false obligatorio,sortOrder entero0..999 obligatorio. Sin partes
-extra, URL remota ni base64. JPEG/PNG/WebP,1..5242880 bytes,20 activas/sucursal.
-Decodificar realmente; rechazar animadas, corruptas, dimensiones fuera64..8192
-por eje o>24 megapíxeles. Reencodificar mismo formato quitando EXIF/GPS y volver
-a comprobar<=5MiB. No guardar rutas/filename cliente; filename null. Sin cambio
-oculto de dimensiones.413 bytes;415 formato;400 corrupta/dimensiones/metadatos.
-El trigger de firma no sustituye decodificador. Elegir biblioteca .NET compatible
-con despliegue Linux y licencia de la organización, sin cambiar stack.
-PhotoInput={altText:string?,isPrimary:bool,sortOrder:int},todo requerido.
-23 solo metadatos/portada; para cambiar bytes cargar nueva y dar baja anterior.
-Primera foto siempre principal aunque false; posteriores true cambian portada
-atómicamente. No false a portada sin sustituta ->409. sortOrder admite empates,
-orden id; no rutas separadas /primary y /order.
-24 baja lógica, si portada asignar primera restante sortOrder,id; si no quedan,
-portada null. Ya baja ->204 con ETag correcto.
-06 sin query: leer bytes solo aquí. Anónimo solo activa y padre/sucursal visibles.
-Con Bearer M puede activa de borrador propio; Admin también de negocio/sucursal
-eliminados. Foto eliminada individualmente siempre404. No autorizado404;
-JWT presente inválido401. Sin token en query ni URLs firmadas.
-200 MIME real,Content-Length,X-Content-Type-Options:nosniff,
-Content-Disposition:inline,Cache-Control:no-store. Sin ETag/304 de imagen.
-Preview privada fetch Bearer y Blob URL; liberar URL al desmontar componente.
+`PhotoInput={altText?,isPrimary,sortOrder}`, todo requerido. 25 solo metadatos/portada; para cambiar
+bytes se sube otra y se da de baja la anterior. La primera foto de una sucursal es siempre principal.
+`isPrimary=true` desmarca las demás de esa sucursal (la BD no tiene índice único; el SQL admite
+varias, la API mantiene una). `false` sobre la portada sin sustituta → 409. `sortOrder` admite
+empates (desempata `id`). 26 baja lógica (`active=false`); si era portada, la siguiente por
+`sortOrder,id` pasa a principal; ya baja → 204. No hay rutas `/primary` ni `/order`.
 
-## 10. AUDITORÍA Y SALUD
+12: lee los bytes solo aquí. Anónimo: foto activa de sucursal visible de negocio publicado.
+Con Bearer, M también de borrador/pendiente propio; Admin también de negocio/sucursal archivados.
+Foto dada de baja individualmente → siempre 404. No autorizado → 404; JWT inválido → 401. Sin
+token en query ni URLs firmadas. 200 con MIME real, `Content-Length`, `X-Content-Type-Options:
+nosniff`, `Content-Disposition: inline`, `Cache-Control: no-store`; sin ETag/304. Preview privado:
+`fetch` con Bearer y Blob URL, liberada al desmontar el componente.
 
+## 10. PROPIETARIOS
 
-25 query:entity opcional business|branch|branch_photo|business_owner|
-owner_identity|branch_contact|opening_hour|branch_hour_override|branch_category|
-branch_service|branch_feature|branch_payment. entityId UUID opcional exige entity;
-from/to ISO UTC opcionales, juntos si alguno presente, from<=to, máximo366 días;
-page/pageSize. Sin fechas últimos30 días UTC hasta ahora. Rango [from,to].
-entityId identifica PK UUID; relaciones compuestas usan branch_id; owner_identity
-usa user_id. Orden changedAt DESC,id DESC. Nunca old_value/new_value por HTTP.
-AuditEntry={id:string,entitySchema:string,entityTable:string,entityKey:string,
- operation:"I"|"U"|"D",actorUserId:UUID?,changedAt:Instant}.
-id BIGINT decimal string. Actor null solo histórico; nuevos cambios requieren
-actor. Baja/restauración son U. No dashboard ni métricas.
-Health={status:"ok"|"unavailable"}.
-26 /health proceso sin DB ->200 ok.27 /health/ready comprueba conexión/extensiones
-y versión de esquema esperada ->200 ok, si no503 unavailable. Excepción explícita
-a ProblemDetails para salud no lista. Sin conexiones/versiones exactas ni stack.
-Rutas sin auth, /api/v1/health y /api/v1/health/ready. Compose deberá usar ready;
-pg_isready no comprueba aplicación/esquema. No dependen de negocios de prueba.
+Registro: §3. Sin solicitudes, evidencias ni reclamos. El Admin verifica por fuera de la app
+(contacto comercial conocido o entrevista) y vincula; la evidencia queda en la auditoría de BD
+(quién y cuándo), no en columnas.
 
-## 11. PROPIETARIOS [P2]
+`OwnerInput={email}`. 28: busca el email normalizado de un usuario **activo**; inexistente o
+inactivo → 400 por `email`. En una transacción: upsert en `business_owner` (`active=true`; si
+estaba revocado el trigger limpia `deleted_at`) y rol `BusinessOwner` al usuario (conserva `User`).
+Nuevo o reactivado → 200; vigente sin cambios → 200 sin alterar nada. Negocio archivado → 409. No
+publica.
+`Owner={userId,email,firstName,lastName,isActive,linkedAt:Instant,revokedAt?:Instant}`.
+27: `Page<Owner>` (incluye revocados); máximo 20 vínculos históricos por negocio, la 21.ª → 409
+(reactivar uno existente sí se permite). 29: `active=false` (baja lógica auditada); no borra
+usuario ni quita el rol; ya revocado → 204; inexistente → 404.
 
+**Permiso M** (se evalúa en BD en cada petición, equivale a `app.is_business_owner`): usuario
+activo sin lockout, rol `BusinessOwner`, `business_owner.active` del negocio y negocio no
+`archived`. Revocar o desactivar surte efecto en la siguiente petición. Admin: todas las
+operaciones. Propietario: 13, 15, 16, 20–22, 24–26 y preview 12 de lo suyo; 14 con vínculo
+atómico; **no** 17–19, 23, 27–29 ni 30; no edita `taxId/legalName`. Edición de un negocio
+publicado entra directamente con las mismas validaciones y auditoría; el Admin puede despublicarlo.
 
-Registro28 §3. Sin solicitudes, evidencias, documentos de identidad ni reclamos.
-Admin verifica por contacto comercial conocido o entrevista con titular, no basta
-email/autodeclaración. Asocia al usuario por email exacto registrado y activo.
-OwnerInput={email:string,verificationMethod:"business_contact"|"in_person"}.
-30 PUT busca email normalizado; inexistente/inactivo ->400 email. Sin listado
-general de usuarios. Bloquear usuario afectado y actor en orden UUID, después
-business. Upsert owner_identity/business_owner,verified_at=ahora,revoked_at=null,
-identity.expires_at=null,verified_by=Admin; rol BusinessOwner, conservar User.
-Todo atómico. Identidad global verificada no otorga otros negocios; se requiere
-vínculo específico. No publica. Nuevo/reactivado ->200; vigente sin cambios
-retorna200 sin alterar fecha/revisión. Negocio eliminado409.
-Owner={userId:UUID,email:string,firstName:string,lastName:string,
- verificationMethod:string,verifiedAt:Instant,revokedAt:Instant?}.
-Fechas del vínculo, método actual de owner_identity.29 OwnerList={items:Owner[]},
-incluye revocadas;email,userId. Máximo20 asociaciones históricas por negocio;
-21ª ->409, se permite reactivar existente. Privada sin paginación, ETag padre.
-31 DELETE vínculo: revoked_at=ahora, no borrar usuario/identidad ni otros vínculos.
-Ya revocado204,inexistente404. No hace falta quitar rol para denegar: DB manda.
-Revocación tras commit deniega nuevas ediciones; locks de usuario/business en
-mismo orden que edición. Operador de desactivación/identidad también los usa.
+## 11. AUDITORÍA Y SALUD
 
-Permiso M/P2: activo,rol BusinessOwner,owner_identity verificada no revocada,
-expires_at null o>ahora,vínculo verificado no revocado,negocio vigente.
-Admin todas operaciones. Propietario IDs11..14,18..20,22..24 y preview06;
-NO15..17/21/25/29..31. Alta12 basta identidad vigente, crea vínculo atómico.
-No editar taxId/legalName. Edición publicada entra directamente con validaciones
-y auditoría; no sistema editorial adicional. Admin puede retirarla.
+**30 `GET /admin/audit`** (Admin). La captura la hacen exclusivamente los triggers de BD
+(`audit_capture_row`/`audit_capture_truncate` sobre todas las tablas de `app`, `catalog` y
+`geo`, y sobre `AspNetUserRoles`, §12.2); el endpoint solo lee `app.audit_log`.
+Query: `entityTable` opcional (nombre de tabla); `entityKey` opcional y exige `entityTable`;
+`actorUserId` opcional UUID; `from/to` ISO UTC opcionales, juntos si alguno aparece, `from ≤ to`,
+máximo 366 días (sin fechas: últimos 30 días hasta ahora); `page/pageSize`. Rango `[from,to]`.
+Orden `changedAt DESC, id DESC`.
+```
+AuditEntry = {id:string (BIGINT decimal), entitySchema, entityTable, entityKey?:string,
+  operation:"I"|"U"|"D"|"T", actorUserId:UUID, changedAt:Instant}
+```
+`entityKey` = `id` del registro; si no existe `id`, `code`, `branch_id` o `UserId` (en ese orden)
+del snapshot. Bajas y restauraciones son `U`. **Nunca se devuelven `old_value`/`new_value`.**
+`actorUserId` con UUID de ceros indica cambio sin actor (defecto o proceso del sistema).
+No hay dashboard ni métricas.
 
-## 12. PERSISTENCIA Y CAMBIOS NECESARIOS [P0/P1]
+`Health={status:"ok"|"unavailable"}`. 01 `/health`: proceso sin BD → 200 ok. 02 `/health/ready`:
+comprueba conexión, extensiones (PostGIS, pg_trgm, unaccent, btree_gist, pgRouting) y versión de
+esquema esperada → 200 ok, si no 503 unavailable. Excepción explícita a ProblemDetails. Sin
+detalles internos. Compose usa ready (pg_isready no valida aplicación ni esquema).
 
+## 12. PERSISTENCIA
 
-Fuente inspeccionada:db/init/01_schema.sql, no un SQL externo v1.3.
-Estos son cambios A IMPLEMENTAR, no migraciones ejecutadas por esta revisión.
+### 12.1 Línea base (ya existe en `01_schema.sql`)
 
-### 12.1 Línea base y seguridad
+- Identity y `__EFMigrationsHistory` están en el baseline. No ejecutar
+  `backend/Data/Migrations/IdentityMigration.sql` encima. Sin `EnsureCreated/Migrate` en arranque.
+- Un `AppDbContext` Identity Guid/Database First; personalizaciones en `partial`.
+- Estados: `business.status` ∈ catálogo `business_status`; `branch.status` ∈ `branch_status`; el
+  trigger `app.touch` asocia la baja lógica a `archived` / `permanently_closed` y la restauración a
+  su salida. Las demás tablas usan `active=false`.
+- Sin `business.revision`, `branch.hours_known`, `owner_identity`, sesiones ni tabla de control
+  de migraciones: **no son parte de este contrato**.
+- `branch_hour_override.active` ya existe. `audit_log` ya guarda `created_by_user_id`
+  (actor) y reemplaza bytes de fotos por su SHA-256.
+- Índices de principal único (sucursal/foto) permanecen sin habilitar: se admiten varias principales.
 
-- 01_schema.sql YA incluye Identity/__EFMigrationsHistory. No ejecutar
-  backend/Data/Migrations/IdentityMigration.sql encima: incluye dominio y colisiona.
-- Incrementos SQL numerados con checksum en tabla control a incorporar
-  (version text PK,checksum text,applied_at timestamptz). Aplicar una vez mediante
-  psql ON_ERROR_STOP durante mantenimiento/transacción. Base nueva=baseline+
-  pendientes; existente inventariar antes de registrar baseline. Sin DbUp/Flyway
-  obligatorio ni EnsureCreated/Migrate en arranque.
-- Un AppDbContext Identity Guid/Database First; personalizaciones partial.
-  Funciones/triggers/índices versionados fuera de scaffold, sin segundo contexto.
-- Cuenta DB API sin superusuario/DDL/TRUNCATE; permisos explícitos solo tablas de
-  alcance. No escribir audit_log directamente: trigger con propietario restringido,
-  search_path seguro, sin escalada de SQL dinámico. Sin acceso API a módulos
-  anuncios/eventos/importaciones. Dominio no permite DELETE; sesiones sí permiten
-  limpieza privada de filas vencidas. No otorgar DELETE amplio a API.
-- Actor transaccional según app.actor() y clave real de línea base; no confiar
-  en parámetros actor/p_is_admin del cliente. Autorización siempre backend.
+### 12.2 Incremento `db/init/02_contrato_v1_1.sql` (archivo aparte)
 
-### 12.2 Integridad y lectura
+1. **Identity fuera de las políticas de borrado/truncado**: elimina `policy_no_delete` y
+   `policy_no_truncate` de `AspNet*` y `__EFMigrationsHistory`, y hace que el event trigger no
+   las vuelva a instalar en el esquema `public`. No se vuelve a ejecutar
+   `install_table_policies()` sin argumentos tras aplicarlo.
+2. **Auditoría de asignación de roles**: trigger `audit_capture_row` sobre `AspNetUserRoles`
+   (sin datos sensibles). `AspNetUsers` no se audita (contiene hash de contraseña).
+3. **Índices de lectura de auditoría** sobre `app.audit_log` (tabla+clave+fecha, actor+fecha).
+4. **`app.search_branches`**: variante de `app.find_branches` con total en la misma consulta,
+   filtros de precio, precio mín/máx por sucursal y `rating` nulo sin reseñas. `find_branches`
+   no se modifica.
 
-- business.revision bigint>=1 DEFAULT1, una revisión por cambio efectivo.
-  Locks usuario/business en orden uniforme y triggers diferidos de sucursal mínima.
-- BRANCH_PRIMARY_ONE_IDX/PHOTO_PRIMARY_ONE_IDX están COMENTADOS. Resolver duplicados
-  eligiendo primera createdAt,id para sucursal o sortOrder,id para foto. Asignar
-  una cuando no hay principal en colección activa no vacía. Habilitar UNIQUE
-  parcial por business_id/branch_id con is_primary y deleted_at NULL. API asegura
-  exactamente una, índice máximo una.
-- Contacto único parcial (branch_id,contact_type) con deleted_at NULL. Revisar
-  duplicados reales, bajar extras con auditoría y conservar historia.
-- Añadir branch.hours_known boolean NOT NULL DEFAULT false; backfill true con
-  horarios activos, false sin ellos. Permite declarar cierre explícito sin turnos.
-- Añadir branch_hour_override.active boolean DEFAULT true NOT NULL; consultas
-  ignoran inactivas y conservan UNIQUE branch/fecha. Upsert, no DELETE físico.
-- Corregir app.is_open_at: cierre de fecha completa anula arrastre; proyección
-  nullable según hours_known/excepciones. Reutilizar evaluación §6 en openNow.
-- AUTO_TERRITORY solo resuelve si falta territorio; no sustituir explícito válido
-  cuando cambia location. API siempre valida y envía territorio.
-- Auditoría adicional contactos/horas/relaciones; clave branch_id para compuestas.
-  Ningún snapshot duplica BYTEA ni material de autenticación.
-- Legacy pending/rejected pasa a draft auditado, sin perder contenido. Archived
-  no eliminado pasa a draft; archived queda solo para baja. Publicados sin punto
-  territorial validado pasan draft hasta corregir. Inventariar y corregir datos
-  que excedan límites de esta especificación antes de habilitar rutas nuevas.
+### 12.3 Requisitos de despliegue (no incluidos en el incremento)
 
-### 12.3 Sesiones Identity
+- No sembrar roles `Admin`, `BusinessOwner`, `User` (por el backend al iniciar o script
+  de despliegue).
+- Índice único sobre `NormalizedEmail` recomendado además de `RequireUniqueEmail`
+  (revisar duplicados antes).
+- Cargas territoriales y festivos por scripts con fuente, versión, fecha y año revisado; SRID,
+  validez, jerarquía y cobertura comprobados. Sin barrios inventados.
+- Copia de seguridad y ensayo de restauración antes de aplicar incrementos; un error aborta todo.
+  `ready` compara la versión de esquema esperada por el backend desplegado; las peticiones de
+  salud nunca aplican cambios.
 
-- UNIQUE NormalizedEmail tras revisar duplicados; EmailIndex actual no es único.
-- app.auth_session:id UUID PK (sid),user_id UUID FK public.AspNetUsers,
-  created_at timestamptz,expires_at timestamptz (=creado+30d),revoked_at nullable;
-  CHECK expires>created. FK real con nombre entrecomillado de Identity.
-- app.refresh_token:id UUID PK,session_id UUID FK auth_session,token_hash bytea
-  UNIQUE32 bytes SHA256,created_at timestamptz,consumed_at nullable; índice session_id.
-  Sin valor claro ni hashes en auditoría. Reuso bloquea/revoca familia.
-- Limpieza privada de familias vencidas y sus tokens tras expiración absoluta;
-  no aplica trigger de prohibición física del dominio a estas tablas efímeras.
-- owner_identity/actores YA UUID: no migración genérica TEXT->UUID. Verificar
-  referencias existentes antes de agregar FK faltantes a Identity; usuarios por
-  desactivación, no borrado físico que rompa historia.
+## 13. FRONTEND (Next.js) Y CRITERIOS DE TERMINADO
 
-### 12.4 Búsqueda, datos y fotos
+Next.js 16 (App Router), React 19, Tailwind 4, TypeScript, pnpm. Producción: un origen HTTPS,
+proxy `/api/v1` hacia el backend y el resto Next.js. Variables: `NEXT_PUBLIC_API_BASE` (cliente),
+`API_BASE_URL` (SSR, accesible en red) y `NEXT_PUBLIC_MAPBOX_TOKEN` (token público; sin él la
+página funciona en modo lista). Sin cookies ni middleware de sesión: las páginas privadas son
+componentes cliente que usan el token en memoria; el SSR público no necesita credenciales. La
+protección de rutas del cliente no sustituye a la API.
 
-- branch.location geography(Point,4326);territory.boundary geography(MultiPolygon,
-  4326) nullable. Bbox SQL de altas no certifica frontera.
-- app.find_branches YA recibe p_territory_id. Orden patrocinado/proyección reseñas
-  no es el contrato. Implementar consulta EF/SQL parametrizada específica con
-  count/filtros idénticos y sin consultar anuncios/reseñas. Mantener GIST/trigram;
-  validar EXPLAIN con datos representativos, no exigir índice en tablas mínimas.
-- Catálogos/departamentos/provincias/municipios con fuente,versión,fecha de carga;
-  SRID/validez/jerarquía/cobertura comprobados. Sin barrios inventados. Zona/barrio
-  sin boundary es admisible bajo municipio válido y selección manual verificada.
-- Festivos por scripts con procedencia y año revisado, sin inventar calendario.
-- app.create_business_with_branch publica directo: adaptar a draft o transacción
-  equivalente. Función SQL no autoriza automáticamente llamada HTTP.
-- app.add_photo/set_primary_photo usan actor/admin derivados del servidor; locks
-  padre y desmarcar portada anterior antes de marcar nueva para índice único.
-  Elegir decodificador .NET compatible y comprobar límites §9 antes de persistir.
+Páginas: `/` buscador, `/businesses/[slug]` ficha, `/login`, `/register`, `/management`
+listado, `/management/businesses/new`, `/management/businesses/[id]` edición,
+`/admin/businesses/[id]/owners`, `/admin/audit`, `/admin/catalogs/[recurso]` (CRUD de catálogos,
+festivos, sinónimos, tipos de suscripción), `/admin/parameters` (definiciones y valores) y
+`/admin/statuses`. Sin panel de reclamos.
 
-## 13. FRONTEND Y CRITERIOS DE TERMINADO
+Filtros en la URL; cambiar un filtro reinicia `page=1`. Un solo GET GeoJSON alimenta lista y mapa
+Mapbox GL JS; se muestra total y página, no todos los marcadores. Radio en metros hacia la API y
+km en la interfaz; no mostrar distancia 0 si es null. "Buscar en esta zona" quita centro/radio y
+usa `bbox`. Permiso geográfico denegado → pin o municipio. La lista funciona sin teselas.
+Direcciones: `https://www.google.com/maps/dir/?api=1&destination=lat,lng` (sin origen del
+visitante, sin rutas propias); enlaces externos seguros en nueva pestaña. Filtros de precio
+`minPriceBob/maxPriceBob` en el buscador principal.
 
+Formularios PUT cargan el GET y construyen el DTO de entrada; no reenvían la salida como body.
+400 muestra errores por campo; 401 intenta un único refresh compartido (§3) y, si falla, vuelve
+a login. No se reintentan mutaciones con resultado de red incierto: se consulta primero. Los
+límites se aplican en API y formulario; campos vacíos nullable se envían como null; sin horas con
+segundos, fechas locales en timestamps UTC ni dinero con más de dos decimales. Carga/vacío/error,
+móvil/teclado y formatos de dinero/horario son parte de la entrega.
 
-Páginas P1: / buscador,/businesses/[slug] ficha,/login,/management listado,
-/management/businesses/new y /management/businesses/[id] edición,/admin/audit.
-P2 agrega /register y asignación dentro de ficha administrativa. Sin panel de
-reclamos/verificación adicional. Nuxt app/pages/componentes/composables; mapa
-cliente Leaflet con teselas/atribución configuradas por entorno. Sin router manual.
-Producción un origen HTTPS, proxy /api/v1 al backend, resto Nuxt. Base pública
-runtimeConfig.public.apiBase; base SSR privada configurable, accesible en red.
-Sesión solo cliente para paneles privados; SSR público no necesita credenciales.
+Pruebas obligatorias con PostgreSQL 18/PostGIS/pgRouting reales:
+- Todas las rutas, métodos, DTO, cabeceras, permisos y límites; OpenAPI con esquemas concretos
+  (JSON, GeoJSON, multipart, binarios, ProblemDetails). Inventario de **84 operaciones** sin rutas
+  duplicadas ni funciones sin interfaz.
+- Paginación en todo GET de lista (total y página coherentes en una consulta, offset > 2000).
+- Mismos IDs/orden/paginación en JSON y GeoJSON, `[lng,lat]`, radios 1/10000/50000, bbox y bordes,
+  centro+bbox → 400, descendientes, filtro de precio, conteo sin duplicados.
+- Atomicidad por mutación; baja/restauración selectiva sin resucitar sucursales no elegidas; baja
+  de la última sucursal; negocio archivado/rechazado/pendiente oculto; temporal visible con
+  `isOpen=false`; datos privados ausentes en respuestas públicas.
+- Horario desconocido, turnos nocturnos, 24 h, domingo, festivo, override abierto/cerrado.
+- Auth: login, lockout, refresh (vigente/vencido/12 h), logout invalida todos los tokens,
+  `IsActive`, propietario A no edita B, revocación efectiva en la siguiente petición, sin
+  privilegios por registro, rate limits (3 políticas).
+- **Auditoría**: cada mutación (negocios, sucursales, catálogos, propietarios, roles) deja fila
+  con el `actorUserId` correcto y ninguna con UUID de ceros; el endpoint nunca expone valores.
+- Fotos: firma falsa, corrupta, dimensiones, tamaño según `photo.max_bytes`, EXIF eliminado,
+  límite por sucursal, portada y preview autorizado; geolocalización denegada y teselas caídas.
 
-Filtros en URL; cambio reinicia page1. Un GET GeoJSON alimenta lista y mapa.
-Mostrar total/página, no todos los marcadores. Radio en metros/API, km/interfaz;
-no distancia0 si null. Buscar en esta zona elimina centro/radio y usa bbox.
-Permiso geográfico denegado permite pin/municipio. Lista funciona sin teselas.
-Llegada externa:https://www.google.com/maps/dir/?api=1&destination=lat,lng;
-no origen del visitante, sin rutas propias. Links externos seguros en nueva pestaña.
-
-Formularios PUT cargan GET13 y construyen DTO entrada, no reenvían salida como
-body. Guardar ETag;412 conserva formulario y ofrece recargar, no sobrescribir.
-400 muestra errores por campo;401 intenta un único refresh compartido salvo
-auth; si falla login. Sin reintentar mutaciones si resultado de red incierto:
-volver a consultar primero. Protección Nuxt no sustituye API. Móvil/teclado,
-carga/vacío/error y formatos monetarios/horarios legibles son parte de entrega.
-
-Pruebas obligatorias con PostgreSQL18/PostGIS real:
-- Todas las rutas/métodos/DTO/cabeceras/permisos/límites; OpenAPI con esquemas
-  concretos JSON,GeoJSON,multipart,binarios,ProblemDetails e If-Match/ETag.
-  Verificar inventario de 27 operaciones MVP y 31 en P2, no rutas duplicadas ni funciones sin interfaz.
-- Mismos IDs/orden/paginación JSON/GeoJSON,[lng,lat],metros1/10000/50000,
-  bbox/bordes,centro+bbox400,descendientes,count sin duplicados,offset>2000.
-- Atomicidad,última sucursal concurrente,principales concurrentes,ETag obsoleto,
-  baja/restauración selectiva sin resucitar fotos o sucursales no elegidas.
-- Ocultamiento consistente por publicación/baja/cierre permanente,temporal
-  visible con isOpen=false,datos privados ausentes de respuestas públicas.
-- Horario desconocido,cierre semanal explícito,turnos nocturnos,domingo,
-  festivo/override abierto,cierre de hoy que anula arrastre de ayer.
-- Rotación/reuso/logout/CSRF,CORS,IsActive/lockout,propietario A no edita B,
-  no se asigna privilegios/publicación,revocación efectiva tras commit.
-- Firma foto falsa,corrupta/dimensiones/tamaño,EXIF eliminado,límite fotos,
-  portada y preview autorizado; geolocalización denegada y teselas caídas.
 Compilar no sustituye aceptación. No afirmar pruebas aprobadas por este texto.
-Esta revisión modifica documentación; SQL,backend y frontend siguen pendientes.
 
 ## 14. REFERENCIAS NORMATIVAS
-
 
 - [GeoJSON: RFC 7946](https://www.rfc-editor.org/rfc/rfc7946)
 - [Problem Details: RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
 - [PostGIS: ST_DWithin](https://postgis.net/docs/ST_DWithin.html)
+- [pgRouting](https://pgrouting.org/)
 
-## 15. REGLAS COMPLEMENTARIAS PARA IMPLEMENTACIÓN SIN AMBIGÜEDAD
+## 15. REGLAS COMPLEMENTARIAS
 
-
-- Todo ID de catálogo de BranchInput debe existir y estar activo; no se acepta
-  categoría con ancestro inactivo. Territorio también requiere ancestros activos.
-  Lecturas públicas solo muestran referencias activas. Mantenimiento de catálogo
-  debe corregir/despublicar fichas afectadas en la misma transacción de baja.
-- Las mutaciones de sucursal/foto sobre negocio eliminado devuelven 409, salvo
-  baja ya efectuada que puede devolver 204 con revisión vigente; restaurar primero
-  el negocio. Sobre sucursal eliminada no se permiten PUT/carga/edición de fotos
-  (409); solo preview Admin y restauración21. Alta18 nunca sobre padre eliminado.
-- El precio y status que devuelve ManagedBranch.input son propios, no efectivos.
-  Si published, cambiar sucursal a permanently_closed puede dejarla invisible;
-  si era la última visible, se rechaza409. Siempre se puede retirar publicación
-  primero. No confundir baja lógica con cierre comercial.
-- Lectura de una foto de negocio publicado pero sucursal temporalmente cerrada
-  sigue siendo pública; si permanente o eliminada, requiere permiso de preview.
-- Al crear/modificar Override.reason, vacío se normaliza null. description también
-  admite null en borrador; publicación exige texto no vacío. Contact.value siempre
-  no vacío. sortOrder de catálogos es entero; sus longitudes se limitan al SQL
-  (code50 y name150); territory name150 y codeIne30; Holiday.name150.
-- Los límites se aplican tanto en API como en el formulario. No aceptar horas
-  con segundos, fechas locales en timestamps UTC ni números de dinero con más
-  de dos decimales. Nuxt convierte campos vacíos nullable a null antes de enviar.
-- No se aceptan query en rutas sin query declarada; las fotos no tienen sufijos
-  de tamaño/transformación. HEAD/OPTIONS técnicos del servidor no agregan rutas
-  funcionales al inventario. Health solo produce su JSON declarado.
-- Las respuestas 201 de sucursal/foto contienen el agregado completo. La cabecera
-  X-Created-Resource-Id identifica el recurso nuevo aunque el orden de colección
-  cambie; no deducirlo por posición ni asumir la primera fila.
-- La autorización y If-Match se comprueban antes de aplicar cambios. En una
-  transacción de edición se vuelve a comprobar permiso bajo locks. Cuando varios
-  usuarios se bloquean (asignación), bloquearlos en orden UUID antes del negocio.
-  La revocación de identidad por mantenimiento revoca además todos sus vínculos,
-  bloqueando negocios en orden UUID y aumentando sus revisiones; una verificación
-  posterior no debe reactivar vínculos antiguos de otros negocios por accidente.
-- La revisión del esquema esperada por ready se configura por versión del
-  backend desplegado y se compara con la tabla de control de migraciones; nunca
-  se aplican incrementos por petición de salud. Antes de incrementos realizar
-  copia y ensayo de restauración; errores abortan toda migración.
-- Versionar OpenAPI generado con los nombres de tipos de este documento y
-  mantenerlo en la misma revisión que frontend/backend. Las definiciones de
-  tipos anteriores son normativas; no usar diccionarios libres para suplir DTO.
+- Todo ID de catálogo en `BranchInput` existe y está activo; no se acepta categoría con ancestro
+  inactivo ni territorio con ancestros inactivos. Lecturas públicas solo muestran referencias
+  activas. El mantenimiento de catálogo que dé de baja un elemento en uso debe resolver las fichas
+  afectadas en la misma transacción (los triggers rechazan dejar publicada una sucursal sin
+  categoría vigente).
+- Cambiar una sucursal a otro estado no la elimina; solo DELETE (22) la da de baja. `isOpen` y
+  filtros usan el estado propio de la sucursal.
+- Lectura de foto de negocio publicado con sucursal temporalmente cerrada sigue siendo pública;
+  archivado o cerrada permanente exige permiso de preview.
+- `Override.reason` y `description` vacíos → null (borrador); publicar exige descripción. Longitudes:
+  catálogo `code` 50 y `name` 150; territorio `name` 150 y `codeIne` 30; `Holiday.name` 150.
+- No hay sufijos de tamaño ni transformación de fotos. HEAD/OPTIONS técnicos no suman rutas
+  funcionales. Health solo produce su JSON declarado.
+- Las respuestas 201 de sucursal/foto contienen el agregado completo; el recurso nuevo se
+  identifica con `X-Created-Resource-Id`.
+- La autorización se comprueba antes de aplicar cambios y se evalúa contra la BD dentro de la
+  transacción de edición.
+- OpenAPI generado se versiona con los nombres de tipos de este documento y se mantiene en la misma
+  revisión que backend y frontend. Los tipos definidos aquí son normativos; no usar diccionarios
+  libres en lugar de DTO.
+- **Post-MVP (diseño reservado)**: concurrencia optimista con ETag/If-Match (412/428), columna de
+  revisión en `business` y bloqueo de agregado; isócronas con pgRouting; módulos de reseñas,
+  favoritos, anuncios, eventos y suscripciones de negocio.

@@ -11,6 +11,7 @@ El producto permite encontrar comercios y sucursales en Bolivia, consultar horar
 - [Reglas de Agentes de IA](AGENTS.md): Guía autoritativa, arquitectura monorepo, directrices técnicas bilingües y restricciones para agentes de codificación.
 - [Funcionalidades](Funcionalidades_Directorio_Geo_SQL_v1_3.md): Alcance de producto, valor para el usuario, entregas (P0, P1, P2) y criterios de aceptación.
 - [Contrato API](REQUERIMIENTOS_API.md): Fuente normativa de rutas (`/api/v1/*`), parámetros, DTOs JSON/GeoJSON, permisos y reglas de validación.
+- [Requerimientos Frontend](requirements-frontend.md): Especificación integral de UI/UX (Penpot), portal público y portal administrativo Next.js 16 / React 19.
 - [README del backend](backend/README.md): Estructura ASP.NET Core 10, configuración, estado de endpoints implementados y comandos de ejecución.
 - [README del frontend](frontend/README.md): Estructura Next.js 16, React 19, Tailwind CSS 4, visor de mapas Mapbox y scripts de desarrollo.
 - **Este README:** Entorno compartido, base de datos PostgreSQL/PostGIS, orquestación Docker y orden de implementación.
