@@ -505,11 +505,33 @@ CREATE OR REPLACE FUNCTION CATALOG.GET_PARAMETER (
   ORDER BY (v.scope_type<>'global') DESC,v.valid_from DESC LIMIT 1),
   (SELECT default_value FROM catalog.parameter_definition WHERE code=p_code AND active)) $$;
 
-CREATE OR REPLACE FUNCTION CATALOG.PARAM_INT (P_CODE TEXT) RETURNS INTEGER LANGUAGE SQL STABLE AS $$
- SELECT (catalog.get_parameter(p_code)#>>'{}')::integer $$;
+CREATE OR REPLACE FUNCTION CATALOG.PARAM_INT (
+	P_CODE TEXT,
+	P_SCOPE_TYPE TEXT DEFAULT 'global'::TEXT,
+	P_SCOPE_ID UUID DEFAULT NULL::UUID
+) RETURNS INTEGER LANGUAGE SQL STABLE AS $$
+ SELECT (catalog.get_parameter(p_code, p_scope_type, p_scope_id)#>>'{}')::integer $$;
 
-CREATE OR REPLACE FUNCTION CATALOG.PARAM_BOOL (P_CODE TEXT) RETURNS BOOLEAN LANGUAGE SQL STABLE AS $$
- SELECT (catalog.get_parameter(p_code)#>>'{}')::boolean $$;
+CREATE OR REPLACE FUNCTION CATALOG.PARAM_BOOL (
+	P_CODE TEXT,
+	P_SCOPE_TYPE TEXT DEFAULT 'global'::TEXT,
+	P_SCOPE_ID UUID DEFAULT NULL::UUID
+) RETURNS BOOLEAN LANGUAGE SQL STABLE AS $function$
+ SELECT (catalog.get_parameter(p_code, p_scope_type, p_scope_id)#>>'{}')::boolean $function$;
+
+CREATE OR REPLACE FUNCTION CATALOG.PARAM_TEXT (
+	P_CODE TEXT,
+	P_SCOPE_TYPE TEXT DEFAULT 'global'::TEXT,
+	P_SCOPE_ID UUID DEFAULT NULL::UUID
+) RETURNS TEXT LANGUAGE SQL STABLE AS $function$
+ SELECT (catalog.get_parameter(p_code, p_scope_type, p_scope_id)#>>'{}')::text $function$;
+
+CREATE OR REPLACE FUNCTION CATALOG.PARAM_NUMBER (
+	P_CODE TEXT,
+	P_SCOPE_TYPE TEXT DEFAULT 'global'::TEXT,
+	P_SCOPE_ID UUID DEFAULT NULL::UUID
+) RETURNS NUMERIC LANGUAGE SQL STABLE AS $function$
+ SELECT (catalog.get_parameter(p_code, p_scope_type, p_scope_id)#>>'{}')::numeric $function$;
 
 -- Territorio boliviano. INE autoridad principal, OSM complementario.
 -- Los poligonos se usan internamente para asignar/verificar ubicaciones.
@@ -2195,9 +2217,9 @@ VALUES
 		'photo.max_bytes',
 		'Tamano maximo de imagen BYTEA',
 		'integer',
-		'5242880',
+		'3145728',
 		1,
-		52428800,
+		3145728,
 		NULL,
 		TRUE
 	),
