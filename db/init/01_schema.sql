@@ -761,7 +761,7 @@ CREATE OR REPLACE FUNCTION APP.CREATE_BUSINESS_WITH_BRANCH (
 	P_TERRITORY_ID UUID DEFAULT NULL,
 	P_CATEGORY_IDS UUID[] DEFAULT NULL
 ) RETURNS UUID LANGUAGE PLPGSQL AS $$
-DECLARE bid uuid; sid uuid;user_id uuid=app.actor();
+DECLARE bid uuid; sid uuid;p_user_id uuid=app.actor();
 BEGIN
  IF coalesce(cardinality(p_category_ids),0)=0 OR EXISTS (
   SELECT 1 FROM unnest(p_category_ids) x(id)
